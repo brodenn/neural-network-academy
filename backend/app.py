@@ -1,0 +1,851 @@
+"""
+Embedded NN Learning Lab - Flask Backend
+
+Interactive neural network learning tool for embedded systems problems.
+Supports multiple problem types: XOR, sensor fusion, PWM control, anomaly detection, gesture classification.
+
+Run with: python app.py
+"""
+
+import os
+import sys
+import json
+import threading
+import time
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from flask_socketio import SocketIO, emit
+import numpy as np
+
+from neural_network import NeuralNetwork, generate_xor_data
+from gpio_simulator import GPIOSimulator
+from problems import PROBLEMS, get_problem, list_problems
+
+
+# -----------------------------------------------------------------------------
+# Flask App Setup
+# -----------------------------------------------------------------------------
+
+app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# -----------------------------------------------------------------------------
+# Global State
+# -----------------------------------------------------------------------------
+
+# Current problem selection
+current_problem_id = 'xor'
+current_problem = get_problem(current_problem_id)
+
+# Neural network (initialized from current problem's default architecture)
+nn = NeuralNetwork(
+    current_problem.info.default_architecture,
+    output_activation=current_problem.info.output_activation
+)
+
+# GPIO simulator (for XOR problem backward compatibility)
+gpio = GPIOSimulator(button_pins=[17, 27, 22, 23, 24], led_pin=18)
+
+# Training data (generated from current problem)
+X_train, y_train = current_problem.generate_data()
+
+# Current input state (for interactive prediction)
+current_inputs: list[float] = [0.0] * len(current_problem.info.input_labels)
+
+# System state
+system_state = {
+    "training_complete": False,
+    "training_in_progress": False,
+    "current_epoch": 0,
+    "current_loss": 0.0,
+    "current_accuracy": 0.0,
+    "prediction_count": 0
+}
+
+
+# -----------------------------------------------------------------------------
+# Prediction and Terminal Output (G6)
+# -----------------------------------------------------------------------------
+
+def make_prediction(inputs: list[float]) -> dict:
+    """
+    Make prediction for given inputs.
+
+    Args:
+        inputs: List of input values (length depends on problem)
+
+    Returns:
+        Prediction result dictionary with activations for visualization
+    """
+    global current_inputs
+
+    if not system_state["training_complete"]:
+        return {"error": "Training not complete"}
+
+    # Ensure correct input length
+    expected_len = len(current_problem.info.input_labels)
+    if len(inputs) != expected_len:
+        inputs = inputs[:expected_len] if len(inputs) > expected_len else inputs + [0.0] * (expected_len - len(inputs))
+
+    current_inputs = inputs
+
+    # Convert to numpy array
+    X = np.array([inputs], dtype=float)
+
+    # Predict with activations for visualization
+    output, activations = nn.predict_with_activations(X)
+
+    # Handle different output types
+    info = current_problem.info
+    if info.output_activation == 'softmax':
+        # Multi-class: return probabilities and predicted class
+        probs = output[0].tolist()
+        predicted_class = int(np.argmax(probs))
+        prediction_value = probs
+        led_on = predicted_class > 0  # For LED, any non-zero class turns it on
+
+        # Get expected class from problem
+        _, expected_y = current_problem.generate_sample(inputs)
+        expected_class = int(np.argmax(expected_y[0]))
+        expected = expected_y[0].tolist()
+        is_correct = predicted_class == expected_class
+    else:
+        # Binary/regression: single value
+        prediction_value = float(output[0][0])
+        led_on = prediction_value >= 0.5
+        predicted_class = int(led_on)
+
+        # Get expected from problem
+        _, expected_y = current_problem.generate_sample(inputs)
+        expected = float(expected_y[0][0])
+        if info.category == 'binary':
+            is_correct = predicted_class == int(expected >= 0.5)
+        else:
+            is_correct = abs(prediction_value - expected) < 0.1
+
+    # Update LED (for XOR backward compatibility)
+    gpio.set_led(led_on)
+
+    # Terminal output (G6 requirement)
+    system_state["prediction_count"] += 1
+    print(f"\nInput change detected!")
+    print(f"Problem: {info.name}")
+    print(f"Input: {[f'{x:.2f}' for x in inputs]}, Prediction: {prediction_value if isinstance(prediction_value, list) else f'{prediction_value:.2f}'}, "
+          f"LED: {'ON' if led_on else 'OFF'}")
+
+    return {
+        "inputs": inputs,
+        "prediction": prediction_value,
+        "prediction_rounded": predicted_class,
+        "led_state": led_on,
+        "expected": expected,
+        "correct": is_correct,
+        "activations": activations,
+        "problem_id": current_problem_id,
+        "output_labels": info.output_labels
+    }
+
+
+def on_button_change(button_states: list[int]):
+    """Callback when buttons change - make prediction and emit to frontend (XOR compatibility)."""
+    # Convert button states to float inputs
+    inputs = [float(s) for s in button_states]
+    result = make_prediction(inputs)
+
+    # Emit to all connected clients
+    socketio.emit('prediction', result)
+    socketio.emit('gpio_state', gpio.get_state())
+
+
+# Register callback
+gpio.on_button_change(on_button_change)
+
+
+# -----------------------------------------------------------------------------
+# Training Functions
+# -----------------------------------------------------------------------------
+
+def training_callback(epoch: int, loss: float, accuracy: float):
+    """Callback during training to emit progress."""
+    system_state["current_epoch"] = epoch
+    system_state["current_loss"] = loss
+    system_state["current_accuracy"] = accuracy
+
+    # Emit progress to frontend (throttled)
+    if epoch % 10 == 0:
+        socketio.emit('training_progress', {
+            "epoch": epoch,
+            "loss": loss,
+            "accuracy": accuracy
+        })
+
+
+def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1):
+    """Run training in background thread."""
+    system_state["training_in_progress"] = True
+    system_state["training_complete"] = False
+
+    socketio.emit('training_started', {"mode": mode})
+
+    if mode == "static":
+        result = nn.train(
+            X_train, y_train,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            verbose=True,
+            callback=training_callback
+        )
+    else:  # adaptive
+        result = nn.train_adaptive(
+            X_train, y_train,
+            target_accuracy=0.99,
+            verbose=True,
+            callback=training_callback
+        )
+
+    system_state["training_complete"] = True
+    system_state["training_in_progress"] = False
+
+    # Print all predictions in required format (G6)
+    print_all_predictions()
+
+    socketio.emit('training_complete', result)
+
+    return result
+
+
+def print_all_predictions():
+    """Print predictions in format matching Bilaga A (G6 requirement)."""
+    print("\n" + "-" * 80)
+    accuracy = nn.calculate_accuracy(X_train, y_train)
+    print(f"Prediction accuracy: {accuracy * 100:.1f}%")
+
+    predictions = nn.predict(X_train)
+    for i in range(len(X_train)):
+        pred_rounded = round(predictions[i][0])
+        error = abs(pred_rounded - y_train[i][0])
+        print(f"Input: {X_train[i].tolist()}, prediction: [{pred_rounded:.1f}], "
+              f"reference: {y_train[i].tolist()}, error: {error:.1f}")
+
+    print("-" * 80)
+
+
+# -----------------------------------------------------------------------------
+# API Routes
+# -----------------------------------------------------------------------------
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Get system status."""
+    return jsonify({
+        "training_complete": system_state["training_complete"],
+        "training_in_progress": system_state["training_in_progress"],
+        "current_epoch": system_state["current_epoch"],
+        "current_loss": system_state["current_loss"],
+        "current_accuracy": system_state["current_accuracy"],
+        "prediction_count": system_state["prediction_count"],
+        "current_problem": current_problem_id
+    })
+
+
+# -----------------------------------------------------------------------------
+# Problem Routes
+# -----------------------------------------------------------------------------
+
+@app.route('/api/problems', methods=['GET'])
+def get_problems():
+    """List all available problems."""
+    return jsonify(list_problems())
+
+
+@app.route('/api/problems/<problem_id>', methods=['GET'])
+def get_problem_info(problem_id: str):
+    """Get details for a specific problem."""
+    try:
+        problem = get_problem(problem_id)
+        info = problem.info
+        X, y = problem.generate_data()
+        return jsonify({
+            'id': info.id,
+            'name': info.name,
+            'description': info.description,
+            'category': info.category,
+            'default_architecture': info.default_architecture,
+            'input_labels': info.input_labels,
+            'output_labels': info.output_labels,
+            'output_activation': info.output_activation,
+            'embedded_context': info.embedded_context,
+            'sample_count': len(X),
+            'input_size': X.shape[1],
+            'output_size': y.shape[1]
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route('/api/problems/<problem_id>/select', methods=['POST'])
+def select_problem(problem_id: str):
+    """Switch to a different problem."""
+    global current_problem_id, current_problem, nn, X_train, y_train, current_inputs
+
+    if system_state["training_in_progress"]:
+        return jsonify({"error": "Cannot change problem during training"}), 400
+
+    try:
+        current_problem = get_problem(problem_id)
+        current_problem_id = problem_id
+        info = current_problem.info
+
+        # Create new network with problem's architecture
+        nn = NeuralNetwork(
+            info.default_architecture,
+            output_activation=info.output_activation
+        )
+
+        # Generate training data
+        X_train, y_train = current_problem.generate_data()
+
+        # Reset input state
+        current_inputs = [0.0] * len(info.input_labels)
+
+        # Reset training state
+        system_state["training_complete"] = False
+        system_state["current_epoch"] = 0
+        system_state["current_loss"] = 0.0
+        system_state["current_accuracy"] = 0.0
+
+        print(f"\n{'='*60}")
+        print(f"Switched to problem: {info.name}")
+        print(f"Architecture: {info.default_architecture}")
+        print(f"Category: {info.category}")
+        print(f"{'='*60}")
+
+        # Notify frontend
+        socketio.emit('problem_changed', {
+            'problem_id': problem_id,
+            'info': {
+                'id': info.id,
+                'name': info.name,
+                'description': info.description,
+                'category': info.category,
+                'default_architecture': info.default_architecture,
+                'input_labels': info.input_labels,
+                'output_labels': info.output_labels,
+                'output_activation': info.output_activation,
+            }
+        })
+
+        return jsonify({
+            "success": True,
+            "problem_id": problem_id,
+            "architecture": nn.get_architecture()
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route('/api/input', methods=['POST'])
+def set_input():
+    """Set input values and get prediction (generic for all problems)."""
+    global current_inputs
+
+    data = request.json
+    inputs = data.get('inputs', [])
+
+    # Make prediction
+    result = make_prediction(inputs)
+
+    # Emit to all clients
+    socketio.emit('prediction', result)
+
+    return jsonify(result)
+
+
+@app.route('/api/network', methods=['GET'])
+def get_network():
+    """Get neural network architecture and weights."""
+    # Sample history to max 500 points for performance while keeping full range
+    loss_hist = nn.loss_history if nn.loss_history else []
+    acc_hist = nn.accuracy_history if nn.accuracy_history else []
+    total_epochs = len(loss_hist)
+
+    if len(loss_hist) > 500:
+        step = len(loss_hist) // 500
+        loss_hist = [loss_hist[i] for i in range(0, len(loss_hist), step)]
+        acc_hist = [acc_hist[i] for i in range(0, len(acc_hist), step)]
+
+    return jsonify({
+        "architecture": nn.get_architecture(),
+        "weights": nn.get_weights(),
+        "loss_history": loss_hist,
+        "accuracy_history": acc_hist,
+        "total_epochs": total_epochs
+    })
+
+
+@app.route('/api/network/architecture', methods=['POST'])
+def set_architecture():
+    """Set new network architecture and/or settings."""
+    global nn
+
+    data = request.json
+    info = current_problem.info
+    default_arch = info.default_architecture
+
+    # Get architecture (required or use current)
+    layer_sizes = data.get('layer_sizes', nn.layer_sizes if nn else default_arch)
+
+    # Get optional settings (use current values as defaults)
+    weight_init = data.get('weight_init', nn.weight_init if nn else 'xavier')
+    hidden_activation = data.get('hidden_activation', nn.hidden_activation if nn else 'relu')
+    use_biases = data.get('use_biases', nn.use_biases if nn else True)
+
+    # Validate against current problem
+    expected_input = len(info.input_labels)
+    expected_output = len(info.output_labels)
+
+    if len(layer_sizes) < 2:
+        return jsonify({"error": "Need at least input and output layers"}), 400
+    if layer_sizes[0] != expected_input:
+        return jsonify({"error": f"Input layer must have {expected_input} neurons for {info.name}"}), 400
+    if layer_sizes[-1] != expected_output:
+        return jsonify({"error": f"Output layer must have {expected_output} neurons for {info.name}"}), 400
+
+    # Validate settings
+    valid_inits = ['xavier', 'he', 'random', 'zeros']
+    valid_activations = ['relu', 'sigmoid', 'tanh']
+
+    if weight_init not in valid_inits:
+        return jsonify({"error": f"weight_init must be one of: {valid_inits}"}), 400
+    if hidden_activation not in valid_activations:
+        return jsonify({"error": f"hidden_activation must be one of: {valid_activations}"}), 400
+
+    nn = NeuralNetwork(
+        layer_sizes,
+        output_activation=info.output_activation,
+        weight_init=weight_init,
+        hidden_activation=hidden_activation,
+        use_biases=use_biases
+    )
+    system_state["training_complete"] = False
+
+    print(f"\nNetwork configuration changed:")
+    print(f"  Architecture: {layer_sizes}")
+    print(f"  Weight init: {weight_init}")
+    print(f"  Hidden activation: {hidden_activation}")
+    print(f"  Use biases: {use_biases}")
+
+    return jsonify({
+        "success": True,
+        "architecture": nn.get_architecture()
+    })
+
+
+@app.route('/api/train', methods=['POST'])
+def start_training():
+    """Start static training (G4)."""
+    if system_state["training_in_progress"]:
+        return jsonify({"error": "Training already in progress"}), 400
+
+    data = request.json or {}
+    epochs = data.get('epochs', 1000)
+    learning_rate = data.get('learning_rate', 0.1)
+
+    # Run in background thread
+    thread = threading.Thread(
+        target=run_training,
+        args=("static", epochs, learning_rate)
+    )
+    thread.start()
+
+    return jsonify({
+        "success": True,
+        "mode": "static",
+        "epochs": epochs,
+        "learning_rate": learning_rate
+    })
+
+
+@app.route('/api/train/adaptive', methods=['POST'])
+def start_adaptive_training():
+    """Start adaptive training (VG9)."""
+    if system_state["training_in_progress"]:
+        return jsonify({"error": "Training already in progress"}), 400
+
+    # Run in background thread
+    thread = threading.Thread(
+        target=run_training,
+        args=("adaptive",)
+    )
+    thread.start()
+
+    return jsonify({
+        "success": True,
+        "mode": "adaptive"
+    })
+
+
+@app.route('/api/train/step', methods=['POST'])
+def train_step():
+    """Run a single training epoch (for step-by-step learning)."""
+    if system_state["training_in_progress"]:
+        return jsonify({"error": "Training already in progress"}), 400
+
+    data = request.json or {}
+    learning_rate = data.get('learning_rate', 0.1)
+    batch_size = data.get('batch_size', None)  # None = full batch
+
+    # Run single epoch synchronously (fast enough)
+    nn.learning_rate = learning_rate
+
+    # Get batch
+    if batch_size and batch_size < len(X_train):
+        indices = np.random.choice(len(X_train), batch_size, replace=False)
+        X_batch = X_train[indices]
+        y_batch = y_train[indices]
+    else:
+        X_batch = X_train
+        y_batch = y_train
+
+    # Forward pass
+    output, activations, z_values = nn.forward(X_batch)
+
+    # Calculate loss and accuracy
+    if nn.output_activation == 'softmax':
+        loss = nn.cross_entropy_loss(output, y_batch)
+    else:
+        loss = nn.mse_loss(output, y_batch)
+    accuracy = nn.calculate_accuracy(X_train, y_train)  # Full dataset accuracy
+
+    # Record history
+    nn.loss_history.append(loss)
+    nn.accuracy_history.append(accuracy)
+
+    # Backward pass
+    nn.backward(X_batch, y_batch, activations, z_values)
+
+    # Update state
+    system_state["current_epoch"] = len(nn.loss_history)
+    system_state["current_loss"] = loss
+    system_state["current_accuracy"] = accuracy
+    system_state["training_complete"] = True  # Allow predictions after any training
+
+    # Emit progress
+    socketio.emit('training_progress', {
+        "epoch": len(nn.loss_history),
+        "loss": loss,
+        "accuracy": accuracy
+    })
+
+    return jsonify({
+        "success": True,
+        "epoch": len(nn.loss_history),
+        "loss": loss,
+        "accuracy": accuracy,
+        "batch_size": batch_size or len(X_train)
+    })
+
+
+@app.route('/api/network/export/c', methods=['GET'])
+def export_to_c():
+    """Export trained network as C code for embedded systems."""
+    info = current_problem.info
+
+    # Generate C header file
+    c_code = f'''/**
+ * Neural Network - Auto-generated from Embedded NN Learning Lab
+ * Problem: {info.name}
+ * Architecture: {nn.layer_sizes}
+ *
+ * Usage:
+ *   float inputs[{nn.layer_sizes[0]}] = {{...}};
+ *   float output[{nn.layer_sizes[-1]}];
+ *   nn_predict(inputs, output);
+ */
+
+#ifndef NEURAL_NETWORK_H
+#define NEURAL_NETWORK_H
+
+#include <math.h>
+
+#define NN_NUM_LAYERS {nn.num_layers}
+#define NN_INPUT_SIZE {nn.layer_sizes[0]}
+#define NN_OUTPUT_SIZE {nn.layer_sizes[-1]}
+
+// Layer sizes
+static const int nn_layer_sizes[NN_NUM_LAYERS] = {{{', '.join(map(str, nn.layer_sizes))}}};
+
+'''
+
+    # Add weights for each layer
+    for i, (w, b) in enumerate(zip(nn.weights, nn.biases)):
+        c_code += f'// Layer {i} -> {i+1} weights [{w.shape[0]}x{w.shape[1]}]\n'
+        c_code += f'static const float nn_weights_{i}[{w.shape[0]}][{w.shape[1]}] = {{\n'
+        for row in w:
+            c_code += '  {' + ', '.join(f'{v:.6f}f' for v in row) + '},\n'
+        c_code += '};\n\n'
+
+        c_code += f'// Layer {i} -> {i+1} biases [{b.shape[1]}]\n'
+        c_code += f'static const float nn_biases_{i}[{b.shape[1]}] = {{'
+        c_code += ', '.join(f'{v:.6f}f' for v in b[0])
+        c_code += '}};\n\n'
+
+    # Add activation functions
+    c_code += '''// Activation functions
+static inline float nn_relu(float x) {
+    return x > 0 ? x : 0;
+}
+
+static inline float nn_sigmoid(float x) {
+    return 1.0f / (1.0f + expf(-x));
+}
+
+'''
+
+    # Add predict function
+    c_code += f'''// Forward pass - predict output from input
+void nn_predict(const float* input, float* output) {{
+    float layer_in[{max(nn.layer_sizes)}];
+    float layer_out[{max(nn.layer_sizes)}];
+
+    // Copy input
+    for (int i = 0; i < NN_INPUT_SIZE; i++) {{
+        layer_in[i] = input[i];
+    }}
+
+'''
+
+    # Generate layer-by-layer computation
+    for i in range(len(nn.weights)):
+        in_size = nn.layer_sizes[i]
+        out_size = nn.layer_sizes[i + 1]
+        is_output = (i == len(nn.weights) - 1)
+
+        c_code += f'    // Layer {i} -> {i+1}\n'
+        c_code += f'    for (int j = 0; j < {out_size}; j++) {{\n'
+        c_code += f'        float sum = nn_biases_{i}[j];\n'
+        c_code += f'        for (int k = 0; k < {in_size}; k++) {{\n'
+        c_code += f'            sum += layer_in[k] * nn_weights_{i}[k][j];\n'
+        c_code += f'        }}\n'
+
+        if is_output:
+            c_code += f'        layer_out[j] = nn_sigmoid(sum);  // Output activation\n'
+        else:
+            c_code += f'        layer_out[j] = nn_relu(sum);  // Hidden activation\n'
+
+        c_code += f'    }}\n'
+        c_code += f'    for (int i = 0; i < {out_size}; i++) layer_in[i] = layer_out[i];\n\n'
+
+    c_code += f'''    // Copy to output
+    for (int i = 0; i < NN_OUTPUT_SIZE; i++) {{
+        output[i] = layer_out[i];
+    }}
+}}
+
+#endif // NEURAL_NETWORK_H
+'''
+
+    return c_code, 200, {
+        'Content-Type': 'text/plain',
+        'Content-Disposition': f'attachment; filename="neural_network_{current_problem_id}.h"'
+    }
+
+
+@app.route('/api/network/reset', methods=['POST'])
+def reset_network():
+    """Reset network weights."""
+    nn.reset()
+    system_state["training_complete"] = False
+    system_state["current_epoch"] = 0
+    system_state["current_loss"] = 0.0
+    system_state["current_accuracy"] = 0.0
+
+    print("\nNetwork weights reset")
+
+    return jsonify({"success": True})
+
+
+# -----------------------------------------------------------------------------
+# GPIO Routes
+# -----------------------------------------------------------------------------
+
+@app.route('/api/gpio', methods=['GET'])
+def get_gpio_state():
+    """Get current GPIO state (buttons and LED)."""
+    return jsonify(gpio.get_state())
+
+
+@app.route('/api/gpio/buttons', methods=['POST'])
+def set_buttons():
+    """Set button states (for simulation)."""
+    data = request.json
+    states = data.get('states', [0, 0, 0, 0, 0])
+
+    gpio.set_buttons(states)
+
+    return jsonify({
+        "success": True,
+        "buttons": gpio.read_buttons()
+    })
+
+
+@app.route('/api/gpio/button/<int:index>', methods=['POST'])
+def toggle_button(index: int):
+    """Toggle a single button."""
+    new_state = gpio.toggle_button(index)
+
+    return jsonify({
+        "success": True,
+        "index": index,
+        "state": new_state,
+        "buttons": gpio.read_buttons()
+    })
+
+
+@app.route('/api/gpio/reset', methods=['POST'])
+def reset_gpio():
+    """Reset all GPIO to default state."""
+    gpio.reset()
+
+    return jsonify({
+        "success": True,
+        "state": gpio.get_state()
+    })
+
+
+# -----------------------------------------------------------------------------
+# Prediction Routes
+# -----------------------------------------------------------------------------
+
+@app.route('/api/predict', methods=['GET'])
+def get_prediction():
+    """Get prediction for current button state."""
+    button_states = gpio.read_buttons()
+    result = make_prediction(button_states)
+
+    return jsonify(result)
+
+
+@app.route('/api/predict', methods=['POST'])
+def predict_custom():
+    """Make prediction for custom input."""
+    data = request.json
+    inputs = data.get('inputs', [])
+
+    expected_len = len(current_problem.info.input_labels)
+    if len(inputs) != expected_len:
+        return jsonify({"error": f"Input must have {expected_len} values for {current_problem.info.name}"}), 400
+
+    result = make_prediction(inputs)
+    return jsonify(result)
+
+
+# -----------------------------------------------------------------------------
+# Training Data Routes
+# -----------------------------------------------------------------------------
+
+@app.route('/api/training-data', methods=['GET'])
+def get_training_data():
+    """Get current problem's training data."""
+    info = current_problem.info
+    return jsonify({
+        "inputs": X_train.tolist(),
+        "labels": y_train.tolist(),
+        "num_samples": len(X_train),
+        "problem_id": current_problem_id,
+        "input_labels": info.input_labels,
+        "output_labels": info.output_labels
+    })
+
+
+# -----------------------------------------------------------------------------
+# WebSocket Events
+# -----------------------------------------------------------------------------
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection."""
+    print(f"Client connected")
+    info = current_problem.info
+    emit('status', {
+        "connected": True,
+        "training_complete": system_state["training_complete"],
+        "training_in_progress": system_state["training_in_progress"],
+        "current_problem": current_problem_id
+    })
+    emit('problem_info', {
+        'id': info.id,
+        'name': info.name,
+        'description': info.description,
+        'category': info.category,
+        'default_architecture': info.default_architecture,
+        'input_labels': info.input_labels,
+        'output_labels': info.output_labels,
+        'output_activation': info.output_activation,
+    })
+    emit('gpio_state', gpio.get_state())
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection."""
+    print(f"Client disconnected")
+
+
+@socketio.on('toggle_button')
+def handle_toggle_button(data):
+    """Handle button toggle from frontend."""
+    index = data.get('index', 0)
+    gpio.toggle_button(index)
+    emit('gpio_state', gpio.get_state(), broadcast=True)
+
+
+@socketio.on('set_buttons')
+def handle_set_buttons(data):
+    """Handle button state change from frontend."""
+    states = data.get('states', [0, 0, 0, 0, 0])
+    gpio.set_buttons(states)
+    emit('gpio_state', gpio.get_state(), broadcast=True)
+
+
+@socketio.on('set_inputs')
+def handle_set_inputs(data):
+    """Handle input change from frontend (generic for all problems)."""
+    inputs = data.get('inputs', [])
+    result = make_prediction(inputs)
+    emit('prediction', result, broadcast=True)
+
+
+# -----------------------------------------------------------------------------
+# Main Entry Point
+# -----------------------------------------------------------------------------
+
+def startup_training():
+    """Run training on startup (as per assignment requirement)."""
+    print("\n" + "=" * 80)
+    print("Embedded NN Learning Lab - Starting Up")
+    print("=" * 80)
+    info = current_problem.info
+    print(f"\nCurrent problem: {info.name}")
+    print(f"Category: {info.category}")
+    print(f"Architecture: {info.default_architecture}")
+    print("\nTraining starts automatically on system boot...")
+    print("No predictions until training is complete.\n")
+
+    # Wait a bit for Flask to start
+    time.sleep(1)
+
+    # Run adaptive training on startup
+    run_training("adaptive")
+
+
+if __name__ == '__main__':
+    # Start training in background thread
+    training_thread = threading.Thread(target=startup_training)
+    training_thread.daemon = True
+    training_thread.start()
+
+    # Run Flask with SocketIO
+    print("\nStarting Flask server on http://localhost:5000")
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
