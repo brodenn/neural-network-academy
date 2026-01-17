@@ -22,6 +22,8 @@ class ProblemInfo:
     output_labels: list[str]
     output_activation: str  # 'sigmoid' or 'softmax'
     embedded_context: str  # Why this is relevant to embedded systems
+    network_type: str = 'dense'  # 'dense' or 'cnn'
+    input_shape: tuple[int, ...] | None = None  # For CNN: (height, width, channels)
 
 
 class Problem(ABC):
@@ -137,50 +139,7 @@ class SensorFusionProblem(Problem):
 
 
 # -----------------------------------------------------------------------------
-# Problem 3: PWM Control Mapping
-# -----------------------------------------------------------------------------
-
-class PWMControlProblem(Problem):
-    """Learn non-linear position to PWM duty cycle mapping."""
-
-    @property
-    def info(self) -> ProblemInfo:
-        return ProblemInfo(
-            id='pwm_control',
-            name='PWM Control',
-            description='Map position input to PWM duty cycle for motor control. '
-                       'Learn smooth non-linear response curves.',
-            category='regression',
-            default_architecture=[1, 8, 4, 1],
-            input_labels=['Position'],
-            output_labels=['PWM Duty'],
-            output_activation='sigmoid',
-            embedded_context='DC motor speed control, servo positioning, LED brightness dimming, '
-                           'fan speed control in thermal management.'
-        )
-
-    def generate_data(self) -> tuple[np.ndarray, np.ndarray]:
-        """Generate non-linear position to PWM mapping data."""
-        n_samples = 100
-        X = np.linspace(0, 1, n_samples).reshape(-1, 1)
-
-        # S-curve response (common in motor control)
-        # Slow start, fast middle, slow end
-        y = 1 / (1 + np.exp(-10 * (X - 0.5)))
-
-        return X, y
-
-    def generate_sample(self, inputs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
-        """Generate sample from position slider."""
-        if inputs is None:
-            inputs = [np.random.rand()]
-        X = np.array([[inputs[0]]], dtype=float)
-        y = 1 / (1 + np.exp(-10 * (inputs[0] - 0.5)))
-        return X, np.array([[y]])
-
-
-# -----------------------------------------------------------------------------
-# Problem 4: Anomaly Detection
+# Problem 3: Anomaly Detection
 # -----------------------------------------------------------------------------
 
 class AnomalyDetectionProblem(Problem):
@@ -358,15 +317,781 @@ class GestureClassificationProblem(Problem):
 
 
 # -----------------------------------------------------------------------------
+# Problem 6: Shape Detection (CNN)
+# -----------------------------------------------------------------------------
+
+class ShapeDetectionProblem(Problem):
+    """Classify shapes on 8x8 grid using CNN."""
+
+    @property
+    def info(self) -> ProblemInfo:
+        return ProblemInfo(
+            id='shape_detection',
+            name='Shape Detection (CNN)',
+            description='Classify 8×8 pixel images of circles, squares, and triangles. '
+                       'Uses convolutional neural network for spatial feature learning.',
+            category='multi-class',
+            default_architecture=[64, 32, 16, 3],  # Fallback for dense, actual CNN defined in app
+            input_labels=[f'p{i}' for i in range(64)],  # 8x8 = 64 pixels
+            output_labels=['Circle', 'Square', 'Triangle'],
+            output_activation='softmax',
+            embedded_context='Computer vision for embedded systems, gesture recognition, '
+                           'object detection, quality control inspection.',
+            network_type='cnn',
+            input_shape=(8, 8, 1)
+        )
+
+    def generate_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """Generate 300 samples (100 per shape class)."""
+        samples = []
+        labels = []
+
+        # Generate circles
+        for _ in range(100):
+            grid = self._generate_circle()
+            samples.append(grid)
+            labels.append([1, 0, 0])
+
+        # Generate squares
+        for _ in range(100):
+            grid = self._generate_square()
+            samples.append(grid)
+            labels.append([0, 1, 0])
+
+        # Generate triangles
+        for _ in range(100):
+            grid = self._generate_triangle()
+            samples.append(grid)
+            labels.append([0, 0, 1])
+
+        X = np.array(samples).reshape(-1, 8, 8, 1)
+        y = np.array(labels)
+
+        # Shuffle
+        indices = np.random.permutation(len(X))
+        return X[indices], y[indices]
+
+    def _generate_circle(self) -> np.ndarray:
+        """Generate filled circle on 8x8 grid."""
+        grid = np.zeros((8, 8))
+        center = 3.5 + np.random.uniform(-0.3, 0.3)
+        radius = 2.5 + np.random.uniform(-0.5, 0.5)
+
+        for i in range(8):
+            for j in range(8):
+                dist = np.sqrt((i - center) ** 2 + (j - center) ** 2)
+                if dist < radius:
+                    grid[i, j] = 0.9 + np.random.uniform(-0.1, 0.1)
+
+        # Add noise
+        grid += np.random.uniform(-0.05, 0.05, (8, 8))
+        return np.clip(grid, 0, 1)
+
+    def _generate_square(self) -> np.ndarray:
+        """Generate filled square on 8x8 grid."""
+        grid = np.zeros((8, 8))
+        margin = np.random.randint(1, 3)
+        size_var = np.random.randint(0, 2)
+
+        top = margin
+        bottom = 8 - margin - size_var
+        left = margin
+        right = 8 - margin - size_var
+
+        grid[top:bottom, left:right] = 0.9 + np.random.uniform(-0.1, 0.1)
+
+        # Add noise
+        grid += np.random.uniform(-0.05, 0.05, (8, 8))
+        return np.clip(grid, 0, 1)
+
+    def _generate_triangle(self) -> np.ndarray:
+        """Generate filled triangle on 8x8 grid."""
+        grid = np.zeros((8, 8))
+        flip = np.random.choice([True, False])  # Upward or downward
+
+        for row in range(8):
+            if flip:
+                # Upward triangle (apex at top)
+                r = 7 - row
+            else:
+                # Downward triangle (apex at bottom)
+                r = row
+
+            # Width increases with row from apex
+            half_width = r // 2 + 1
+            center = 3.5
+            left = max(0, int(center - half_width + 0.5))
+            right = min(8, int(center + half_width + 0.5))
+
+            if right > left:
+                grid[row, left:right] = 0.9 + np.random.uniform(-0.1, 0.1)
+
+        # Add noise
+        grid += np.random.uniform(-0.05, 0.05, (8, 8))
+        return np.clip(grid, 0, 1)
+
+    def generate_sample(self, inputs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Generate sample from grid inputs or random shape."""
+        if inputs is None:
+            # Generate random shape
+            shape_type = np.random.choice(['circle', 'square', 'triangle'])
+            if shape_type == 'circle':
+                grid = self._generate_circle()
+                y = np.array([[1, 0, 0]])
+            elif shape_type == 'square':
+                grid = self._generate_square()
+                y = np.array([[0, 1, 0]])
+            else:
+                grid = self._generate_triangle()
+                y = np.array([[0, 0, 1]])
+            X = grid.reshape(1, 8, 8, 1)
+        else:
+            # Use provided 64 values
+            grid = np.array(inputs[:64]).reshape(8, 8)
+            y = self._classify_grid(grid)
+            X = grid.reshape(1, 8, 8, 1)
+
+        return X, y
+
+    def _classify_grid(self, grid: np.ndarray) -> np.ndarray:
+        """Heuristic classification of drawn shape."""
+        # Compute center of mass
+        total = np.sum(grid) + 1e-10
+        y_coords, x_coords = np.meshgrid(range(8), range(8))
+        cx = np.sum(x_coords * grid) / total
+        cy = np.sum(y_coords * grid) / total
+
+        # Check for circular pattern (symmetry around center)
+        # Compute variance from center
+        distances = np.sqrt((x_coords - cx) ** 2 + (y_coords - cy) ** 2)
+        active_distances = distances[grid > 0.5]
+        if len(active_distances) > 0:
+            dist_variance = np.var(active_distances)
+        else:
+            dist_variance = 10
+
+        # Check for square pattern (rectangular bounding box fill)
+        active = grid > 0.5
+        if np.any(active):
+            rows_active = np.any(active, axis=1)
+            cols_active = np.any(active, axis=0)
+            bbox_area = np.sum(rows_active) * np.sum(cols_active)
+            fill_ratio = np.sum(active) / (bbox_area + 1e-10)
+        else:
+            fill_ratio = 0
+
+        # Classify based on heuristics
+        if dist_variance < 0.8 and fill_ratio > 0.6:
+            return np.array([[1, 0, 0]])  # Circle
+        elif fill_ratio > 0.8:
+            return np.array([[0, 1, 0]])  # Square
+        else:
+            return np.array([[0, 0, 1]])  # Triangle
+
+    def get_preset_shapes(self) -> dict[str, list[float]]:
+        """Get preset shapes for UI buttons."""
+        return {
+            'circle': self._generate_circle().flatten().tolist(),
+            'square': self._generate_square().flatten().tolist(),
+            'triangle': self._generate_triangle().flatten().tolist()
+        }
+
+
+# -----------------------------------------------------------------------------
+# Problem 7: Digit Recognition (CNN)
+# -----------------------------------------------------------------------------
+
+class DigitRecognitionProblem(Problem):
+    """Classify handwritten digits 0-9 on 8x8 grid using CNN."""
+
+    # Base digit patterns (8x8 grids) - simple stylized digits
+    DIGIT_PATTERNS = {
+        0: [
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,0,0],
+        ],
+        1: [
+            [0,0,0,1,1,0,0,0],
+            [0,0,1,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,1,1,1,1,0,0],
+        ],
+        2: [
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,1,1,0,0,0,0],
+            [0,1,1,0,0,0,0,0],
+            [0,1,1,1,1,1,1,0],
+        ],
+        3: [
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,1,1,1,0,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,0,0],
+        ],
+        4: [
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,1,1,1,0,0],
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,1,1,0,0],
+            [0,1,1,1,1,1,1,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,0,1,1,0,0],
+        ],
+        5: [
+            [0,1,1,1,1,1,1,0],
+            [0,1,1,0,0,0,0,0],
+            [0,1,1,0,0,0,0,0],
+            [0,1,1,1,1,1,0,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,0,0],
+        ],
+        6: [
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,0,0,0],
+            [0,1,1,0,0,0,0,0],
+            [0,1,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,0,0],
+        ],
+        7: [
+            [0,1,1,1,1,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+        ],
+        8: [
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,0,0],
+        ],
+        9: [
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,0,0,1,1,0],
+            [0,1,1,0,0,1,1,0],
+            [0,0,1,1,1,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,0,0,1,1,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,1,1,1,0,0,0],
+        ],
+    }
+
+    @property
+    def info(self) -> ProblemInfo:
+        return ProblemInfo(
+            id='digit_recognition',
+            name='Digit Recognition (CNN)',
+            description='Classify 8×8 pixel images of handwritten digits 0-9. '
+                       'Uses convolutional neural network for pattern recognition.',
+            category='multi-class',
+            default_architecture=[64, 32, 16, 10],
+            input_labels=[f'p{i}' for i in range(64)],
+            output_labels=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            output_activation='softmax',
+            embedded_context='OCR for embedded displays, keypad digit recognition, '
+                           'meter reading, industrial label scanning.',
+            network_type='cnn',
+            input_shape=(8, 8, 1)
+        )
+
+    def generate_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """Generate 500 samples (50 per digit class)."""
+        samples = []
+        labels = []
+
+        for digit in range(10):
+            for _ in range(50):
+                grid = self._generate_digit(digit)
+                samples.append(grid)
+                label = [0] * 10
+                label[digit] = 1
+                labels.append(label)
+
+        X = np.array(samples).reshape(-1, 8, 8, 1)
+        y = np.array(labels)
+
+        indices = np.random.permutation(len(X))
+        return X[indices], y[indices]
+
+    def _generate_digit(self, digit: int) -> np.ndarray:
+        """Generate a digit with variations."""
+        base = np.array(self.DIGIT_PATTERNS[digit], dtype=float)
+
+        # Apply random variations
+        # 1. Small random shift (0 or 1 pixel)
+        shift_x = np.random.choice([-1, 0, 0, 1])
+        shift_y = np.random.choice([-1, 0, 0, 1])
+        if shift_x != 0 or shift_y != 0:
+            base = np.roll(base, shift_x, axis=1)
+            base = np.roll(base, shift_y, axis=0)
+            # Clear wrapped edges
+            if shift_x > 0:
+                base[:, :shift_x] = 0
+            elif shift_x < 0:
+                base[:, shift_x:] = 0
+            if shift_y > 0:
+                base[:shift_y, :] = 0
+            elif shift_y < 0:
+                base[shift_y:, :] = 0
+
+        # 2. Intensity variation
+        base = base * (0.8 + np.random.uniform(0, 0.2))
+
+        # 3. Per-pixel noise
+        base += np.random.uniform(-0.1, 0.1, (8, 8))
+
+        # 4. Random pixel dropout (simulate imperfect writing)
+        dropout_mask = np.random.random((8, 8)) > 0.05
+        base = base * dropout_mask
+
+        return np.clip(base, 0, 1)
+
+    def generate_sample(self, inputs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Generate sample from grid inputs or random digit."""
+        if inputs is None:
+            # Generate random digit
+            digit = np.random.randint(0, 10)
+            grid = self._generate_digit(digit)
+            y = np.zeros((1, 10))
+            y[0, digit] = 1
+            X = grid.reshape(1, 8, 8, 1)
+        else:
+            # Use provided 64 values (8x8 grid)
+            if isinstance(inputs, list) and len(inputs) > 0:
+                if isinstance(inputs[0], list):
+                    # 2D grid input
+                    grid = np.array(inputs, dtype=float)
+                else:
+                    # Flat input
+                    grid = np.array(inputs[:64]).reshape(8, 8)
+            else:
+                grid = np.zeros((8, 8))
+
+            # Heuristic classification based on pattern matching
+            y = self._classify_grid(grid)
+            X = grid.reshape(1, 8, 8, 1)
+
+        return X, y
+
+    def _classify_grid(self, grid: np.ndarray) -> np.ndarray:
+        """Heuristic classification of drawn digit using pattern matching."""
+        best_match = 0
+        best_score = -np.inf
+
+        for digit, pattern in self.DIGIT_PATTERNS.items():
+            pattern_arr = np.array(pattern, dtype=float)
+            # Normalize both to compare
+            grid_norm = grid / (np.max(grid) + 1e-10)
+            score = np.sum(grid_norm * pattern_arr) - 0.5 * np.sum((1 - grid_norm) * pattern_arr)
+            if score > best_score:
+                best_score = score
+                best_match = digit
+
+        y = np.zeros((1, 10))
+        y[0, best_match] = 1
+        return y
+
+    def prepare_input(self, inputs: list) -> tuple[np.ndarray, np.ndarray]:
+        """Prepare input for prediction."""
+        if len(inputs) == 1 and isinstance(inputs[0], str):
+            digit = int(inputs[0])
+            grid = self._generate_digit(digit)
+            y = np.zeros((1, 10))
+            y[0, digit] = 1
+            X = grid.reshape(1, 8, 8, 1)
+        else:
+            grid = np.array(inputs[:64]).reshape(8, 8)
+            y = np.zeros((1, 10))  # Unknown expected
+            X = grid.reshape(1, 8, 8, 1)
+        return X, y
+
+    def get_example_patterns(self) -> dict:
+        """Get example digit patterns."""
+        return {str(d): np.array(self.DIGIT_PATTERNS[d]).flatten().tolist()
+                for d in range(10)}
+
+
+# -----------------------------------------------------------------------------
+# Problem 8: Arrow Direction (CNN)
+# -----------------------------------------------------------------------------
+
+class ArrowDirectionProblem(Problem):
+    """Classify arrow directions on 8x8 grid using CNN."""
+
+    # Arrow patterns (8x8 grids)
+    ARROW_PATTERNS = {
+        'up': [
+            [0,0,0,1,1,0,0,0],
+            [0,0,1,1,1,1,0,0],
+            [0,1,1,1,1,1,1,0],
+            [1,1,0,1,1,0,1,1],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+        ],
+        'down': [
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [0,0,0,1,1,0,0,0],
+            [1,1,0,1,1,0,1,1],
+            [0,1,1,1,1,1,1,0],
+            [0,0,1,1,1,1,0,0],
+            [0,0,0,1,1,0,0,0],
+        ],
+        'left': [
+            [0,0,0,1,0,0,0,0],
+            [0,0,1,1,0,0,0,0],
+            [0,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1],
+            [0,1,1,1,1,1,1,1],
+            [0,0,1,1,0,0,0,0],
+            [0,0,0,1,0,0,0,0],
+        ],
+        'right': [
+            [0,0,0,0,1,0,0,0],
+            [0,0,0,0,1,1,0,0],
+            [1,1,1,1,1,1,1,0],
+            [1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,1],
+            [1,1,1,1,1,1,1,0],
+            [0,0,0,0,1,1,0,0],
+            [0,0,0,0,1,0,0,0],
+        ],
+    }
+
+    @property
+    def info(self) -> ProblemInfo:
+        return ProblemInfo(
+            id='arrow_direction',
+            name='Arrow Direction (CNN)',
+            description='Classify 8×8 pixel images of arrows pointing up, down, left, or right. '
+                       'Simple CNN problem for quick training.',
+            category='multi-class',
+            default_architecture=[64, 32, 16, 4],
+            input_labels=[f'p{i}' for i in range(64)],
+            output_labels=['Up', 'Down', 'Left', 'Right'],
+            output_activation='softmax',
+            embedded_context='Gesture recognition, UI navigation, directional input detection.',
+            network_type='cnn',
+            input_shape=(8, 8, 1)
+        )
+
+    def generate_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """Generate 200 samples (50 per direction)."""
+        samples = []
+        labels = []
+        directions = ['up', 'down', 'left', 'right']
+
+        for i, direction in enumerate(directions):
+            for _ in range(50):
+                grid = self._generate_arrow(direction)
+                samples.append(grid)
+                label = [0, 0, 0, 0]
+                label[i] = 1
+                labels.append(label)
+
+        X = np.array(samples).reshape(-1, 8, 8, 1)
+        y = np.array(labels)
+
+        indices = np.random.permutation(len(X))
+        return X[indices], y[indices]
+
+    def _generate_arrow(self, direction: str) -> np.ndarray:
+        """Generate arrow with variations."""
+        base = np.array(self.ARROW_PATTERNS[direction], dtype=float)
+
+        # Small random shift
+        shift_x = np.random.choice([-1, 0, 0, 1])
+        shift_y = np.random.choice([-1, 0, 0, 1])
+        if shift_x != 0 or shift_y != 0:
+            base = np.roll(base, shift_x, axis=1)
+            base = np.roll(base, shift_y, axis=0)
+            if shift_x > 0: base[:, :shift_x] = 0
+            elif shift_x < 0: base[:, shift_x:] = 0
+            if shift_y > 0: base[:shift_y, :] = 0
+            elif shift_y < 0: base[shift_y:, :] = 0
+
+        # Intensity variation
+        base = base * (0.8 + np.random.uniform(0, 0.2))
+
+        # Per-pixel noise
+        base += np.random.uniform(-0.1, 0.1, (8, 8))
+
+        return np.clip(base, 0, 1)
+
+    def generate_sample(self, inputs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Generate sample from grid inputs or random arrow."""
+        directions = ['up', 'down', 'left', 'right']
+        if inputs is None:
+            direction = np.random.choice(directions)
+            grid = self._generate_arrow(direction)
+            y = np.zeros((1, 4))
+            y[0, directions.index(direction)] = 1
+            X = grid.reshape(1, 8, 8, 1)
+        else:
+            if isinstance(inputs, list) and len(inputs) > 0:
+                if isinstance(inputs[0], list):
+                    grid = np.array(inputs, dtype=float)
+                else:
+                    grid = np.array(inputs[:64]).reshape(8, 8)
+            else:
+                grid = np.zeros((8, 8))
+            y = self._classify_grid(grid)
+            X = grid.reshape(1, 8, 8, 1)
+        return X, y
+
+    def _classify_grid(self, grid: np.ndarray) -> np.ndarray:
+        """Classify arrow direction using pattern matching."""
+        directions = ['up', 'down', 'left', 'right']
+        best_match = 0
+        best_score = -np.inf
+
+        for i, direction in enumerate(directions):
+            pattern = np.array(self.ARROW_PATTERNS[direction], dtype=float)
+            grid_norm = grid / (np.max(grid) + 1e-10)
+            score = np.sum(grid_norm * pattern)
+            if score > best_score:
+                best_score = score
+                best_match = i
+
+        y = np.zeros((1, 4))
+        y[0, best_match] = 1
+        return y
+
+
+# -----------------------------------------------------------------------------
+# Problem 9: Color Mixer
+# -----------------------------------------------------------------------------
+
+class ColorMixerProblem(Problem):
+    """Classify colors from RGB values."""
+
+    @property
+    def info(self) -> ProblemInfo:
+        return ProblemInfo(
+            id='color_mixer',
+            name='Color Mixer',
+            description='Predict color category from RGB values. '
+                       'Learn to classify Red, Green, Blue, Yellow, Cyan, Magenta.',
+            category='multi-class',
+            default_architecture=[3, 12, 8, 6],
+            input_labels=['Red', 'Green', 'Blue'],
+            output_labels=['Red', 'Green', 'Blue', 'Yellow', 'Cyan', 'Magenta'],
+            output_activation='softmax',
+            embedded_context='Color sensing, LED control, display calibration, '
+                           'image processing for embedded vision.'
+        )
+
+    def generate_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """Generate 300 samples (50 per color)."""
+        samples = []
+        labels = []
+
+        # Color centers (R, G, B)
+        colors = {
+            0: (1.0, 0.2, 0.2),  # Red
+            1: (0.2, 1.0, 0.2),  # Green
+            2: (0.2, 0.2, 1.0),  # Blue
+            3: (1.0, 1.0, 0.2),  # Yellow (R+G)
+            4: (0.2, 1.0, 1.0),  # Cyan (G+B)
+            5: (1.0, 0.2, 1.0),  # Magenta (R+B)
+        }
+
+        for color_idx, (r, g, b) in colors.items():
+            for _ in range(50):
+                # Add noise around color center
+                noise = np.random.uniform(-0.15, 0.15, 3)
+                rgb = np.clip([r + noise[0], g + noise[1], b + noise[2]], 0, 1)
+                samples.append(rgb)
+                label = [0] * 6
+                label[color_idx] = 1
+                labels.append(label)
+
+        X = np.array(samples)
+        y = np.array(labels)
+
+        indices = np.random.permutation(len(X))
+        return X[indices], y[indices]
+
+    def generate_sample(self, inputs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Generate sample from RGB sliders."""
+        if inputs is None:
+            inputs = [np.random.rand() for _ in range(3)]
+
+        X = np.array([inputs[:3]], dtype=float)
+        y = self._classify_color(inputs[:3])
+        return X, y
+
+    def _classify_color(self, rgb: list[float]) -> np.ndarray:
+        """Classify color based on RGB values."""
+        r, g, b = rgb[0], rgb[1], rgb[2]
+
+        # Determine dominant color(s)
+        y = np.zeros((1, 6))
+
+        # Primary colors
+        if r > 0.6 and g < 0.5 and b < 0.5:
+            y[0, 0] = 1  # Red
+        elif g > 0.6 and r < 0.5 and b < 0.5:
+            y[0, 1] = 1  # Green
+        elif b > 0.6 and r < 0.5 and g < 0.5:
+            y[0, 2] = 1  # Blue
+        # Secondary colors
+        elif r > 0.6 and g > 0.6 and b < 0.5:
+            y[0, 3] = 1  # Yellow
+        elif g > 0.6 and b > 0.6 and r < 0.5:
+            y[0, 4] = 1  # Cyan
+        elif r > 0.6 and b > 0.6 and g < 0.5:
+            y[0, 5] = 1  # Magenta
+        else:
+            # Default to closest primary
+            max_idx = np.argmax([r, g, b])
+            y[0, max_idx] = 1
+
+        return y
+
+
+# -----------------------------------------------------------------------------
+# Problem 10: Logic Gates
+# -----------------------------------------------------------------------------
+
+class LogicGatesProblem(Problem):
+    """Classify logic gates from their complete truth table."""
+
+    # Truth tables: [out(0,0), out(0,1), out(1,0), out(1,1)]
+    GATE_TRUTH_TABLES = {
+        0: [0, 0, 0, 1],  # AND
+        1: [0, 1, 1, 1],  # OR
+        2: [0, 1, 1, 0],  # XOR
+        3: [1, 1, 1, 0],  # NAND
+    }
+
+    @property
+    def info(self) -> ProblemInfo:
+        return ProblemInfo(
+            id='logic_gates',
+            name='Logic Gates',
+            description='Identify logic gates from their truth table. '
+                       'Input is [out(0,0), out(0,1), out(1,0), out(1,1)] - the 4 outputs.',
+            category='multi-class',
+            default_architecture=[4, 8, 6, 4],
+            input_labels=['0,0→', '0,1→', '1,0→', '1,1→'],
+            output_labels=['AND', 'OR', 'XOR', 'NAND'],
+            output_activation='softmax',
+            embedded_context='Digital logic education, circuit testing, '
+                           'programmable logic device configuration.'
+        )
+
+    def generate_data(self) -> tuple[np.ndarray, np.ndarray]:
+        """Generate samples for each gate type."""
+        samples = []
+        labels = []
+
+        # Generate samples with noise for each gate
+        for gate_idx, truth_table in self.GATE_TRUTH_TABLES.items():
+            for _ in range(50):  # 50 samples per gate
+                # Add noise to truth table values
+                noisy_table = [
+                    np.clip(float(v) + np.random.uniform(-0.1, 0.1), 0, 1)
+                    for v in truth_table
+                ]
+                samples.append(noisy_table)
+
+                label = [0, 0, 0, 0]
+                label[gate_idx] = 1
+                labels.append(label)
+
+        X = np.array(samples)
+        y = np.array(labels)
+
+        indices = np.random.permutation(len(X))
+        return X[indices], y[indices]
+
+    def generate_sample(self, inputs: list[float] | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """Generate sample from 4 toggle inputs."""
+        if inputs is None:
+            # Random gate
+            gate_idx = np.random.randint(0, 4)
+            inputs = [float(v) for v in self.GATE_TRUTH_TABLES[gate_idx]]
+
+        X = np.array([inputs[:4]], dtype=float)
+        y = self._classify_gate(inputs[:4])
+        return X, y
+
+    def _classify_gate(self, inputs: list[float]) -> np.ndarray:
+        """Classify which gate matches the truth table."""
+        # Round inputs to get binary values
+        binary = [1 if v > 0.5 else 0 for v in inputs]
+
+        y = np.zeros((1, 4))
+
+        # Find matching gate
+        for gate_idx, truth_table in self.GATE_TRUTH_TABLES.items():
+            if binary == truth_table:
+                y[0, gate_idx] = 1
+                return y
+
+        # No exact match - find closest
+        best_match = 0
+        best_score = -1
+        for gate_idx, truth_table in self.GATE_TRUTH_TABLES.items():
+            score = sum(1 for a, b in zip(binary, truth_table) if a == b)
+            if score > best_score:
+                best_score = score
+                best_match = gate_idx
+
+        y[0, best_match] = 1
+        return y
+
+
+# -----------------------------------------------------------------------------
 # Problem Registry
 # -----------------------------------------------------------------------------
 
 PROBLEMS: dict[str, Problem] = {
     'xor': XORProblem(),
     'sensor_fusion': SensorFusionProblem(),
-    'pwm_control': PWMControlProblem(),
     'anomaly': AnomalyDetectionProblem(),
     'gesture': GestureClassificationProblem(),
+    'shape_detection': ShapeDetectionProblem(),
+    'digit_recognition': DigitRecognitionProblem(),
+    'arrow_direction': ArrowDirectionProblem(),
+    'color_mixer': ColorMixerProblem(),
 }
 
 

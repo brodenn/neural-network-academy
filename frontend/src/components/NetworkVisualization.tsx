@@ -114,19 +114,29 @@ export const NetworkVisualization = memo(function NetworkVisualization({
     const layerSpacing = width / Math.max(layerSizes.length - 1, 1);
 
     weights.forEach((layer, layerIndex) => {
+      if (!layer || !layer.weights) return;
+      if (!layer.input_size || !layer.output_size) return;
+
       const x1 = margin.left + layerIndex * layerSpacing;
       const x2 = margin.left + (layerIndex + 1) * layerSpacing;
 
       const sourceSpacing = (height - 20) / (layer.input_size + 1);
       const targetSpacing = (height - 20) / (layer.output_size + 1);
 
+      // Skip if spacing would produce NaN
+      if (!isFinite(sourceSpacing) || !isFinite(targetSpacing)) return;
+
       const maxWeight = Math.max(...layer.weights.flat().map(Math.abs), 0.001);
 
       layer.weights.forEach((sourceWeights, sourceIndex) => {
+        if (!sourceWeights) return;
         const y1 = margin.top + (sourceIndex + 1) * sourceSpacing;
 
         sourceWeights.forEach((weight, targetIndex) => {
           const y2 = margin.top + (targetIndex + 1) * targetSpacing;
+
+          // Skip invalid coordinates
+          if (!isFinite(y1) || !isFinite(y2)) return;
 
           // Bezier control points
           const cpOffset = layerSpacing * 0.4;
@@ -586,13 +596,13 @@ export const NetworkVisualization = memo(function NetworkVisualization({
         <div className="bg-gray-900/60 rounded px-2 py-1 border border-gray-700/50">
           <span className="text-gray-500">W:</span>{' '}
           <span className="text-cyan-400 font-mono">
-            {weights.reduce((s, l) => s + l.weights.flat().length, 0)}
+            {weights.reduce((s, l) => s + (l.weights?.flat()?.length || 0), 0)}
           </span>
         </div>
         <div className="bg-gray-900/60 rounded px-2 py-1 border border-gray-700/50">
           <span className="text-gray-500">B:</span>{' '}
           <span className="text-cyan-400 font-mono">
-            {weights.reduce((s, l) => s + l.biases.flat().length, 0)}
+            {weights.reduce((s, l) => s + (l.biases?.flat()?.length || 0), 0)}
           </span>
         </div>
       </div>

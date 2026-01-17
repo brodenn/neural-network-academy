@@ -6,8 +6,9 @@ import { OutputDisplay } from './components/OutputDisplay';
 import { TrainingPanel } from './components/TrainingPanel';
 import { LossCurve } from './components/LossCurve';
 import { NetworkVisualization } from './components/NetworkVisualization';
+import { FeatureMapVisualization } from './components/FeatureMapVisualization';
 import { TerminalOutput } from './components/TerminalOutput';
-import type { NetworkState, PredictionResult, ProblemInfo } from './types';
+import type { NetworkState, PredictionResult, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
 
 const API_URL = 'http://localhost:5000';
 
@@ -27,7 +28,9 @@ function App() {
   // Problem state
   const [problems, setProblems] = useState<ProblemInfo[]>([]);
   const [currentProblem, setCurrentProblem] = useState<ProblemInfo | null>(null);
-  const [inputValues, setInputValues] = useState<number[]>([]);
+  const [inputValues, setInputValues] = useState<number[] | number[][]>([]);
+  const [networkType, setNetworkType] = useState<NetworkType>('dense');
+  const [featureMaps, setFeatureMaps] = useState<CNNFeatureMaps | null>(null);
 
   // Fetch available problems
   const fetchProblems = useCallback(async () => {
@@ -57,18 +60,33 @@ function App() {
     fetchNetworkState();
   }, [fetchProblems, fetchNetworkState]);
 
+  // Helper to initialize input values based on network type
+  const initializeInputValues = (info: ProblemInfo) => {
+    if (info.network_type === 'cnn' && info.input_shape) {
+      // Initialize 2D grid for CNN
+      const [h, w] = info.input_shape;
+      return Array.from({ length: h }, () => Array(w).fill(0));
+    }
+    // Initialize 1D array for dense networks
+    return new Array(info.input_labels.length).fill(0);
+  };
+
   // Listen for problem info and training events from websocket
   useEffect(() => {
     if (socket) {
       const handleProblemInfo = (info: ProblemInfo) => {
         setCurrentProblem(info);
-        setInputValues(new Array(info.input_labels.length).fill(0));
+        setNetworkType(info.network_type || 'dense');
+        setInputValues(initializeInputValues(info));
+        setFeatureMaps(null);
       };
 
       const handleProblemChanged = (data: { problem_id: string; info: ProblemInfo }) => {
         setCurrentProblem(data.info);
-        setInputValues(new Array(data.info.input_labels.length).fill(0));
+        setNetworkType(data.info.network_type || 'dense');
+        setInputValues(initializeInputValues(data.info));
         setPredictions([]);
+        setFeatureMaps(null);
         fetchNetworkState();
       };
 
@@ -98,10 +116,14 @@ function App() {
     }
   }, [trainingInProgress, fetchNetworkState]);
 
-  // Track predictions
+  // Track predictions and feature maps
   useEffect(() => {
     if (lastPrediction) {
       setPredictions((prev) => [...prev.slice(-50), lastPrediction]);
+      // Update feature maps for CNN
+      if (lastPrediction.feature_maps) {
+        setFeatureMaps(lastPrediction.feature_maps);
+      }
     }
   }, [lastPrediction]);
 
@@ -116,7 +138,7 @@ function App() {
   };
 
   // Handle input changes
-  const handleInputChange = (values: number[]) => {
+  const handleInputChange = (values: number[] | number[][]) => {
     setInputValues(values);
     if (socket && trainingComplete) {
       socket.emit('set_inputs', { inputs: values });
@@ -143,10 +165,14 @@ function App() {
     }
   };
 
-  const handleStartAdaptive = async () => {
+  const handleStartAdaptive = async (targetAccuracy: number) => {
     setTrainingInProgress(true);
     try {
-      const res = await fetch(`${API_URL}/api/train/adaptive`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/train/adaptive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_accuracy: targetAccuracy }),
+      });
       if (!res.ok) {
         const data = await res.json();
         console.error('Adaptive training failed:', data.error);
@@ -275,19 +301,35 @@ function App() {
             trainingComplete={trainingComplete}
             onStartStatic={handleStartStatic}
             onStartAdaptive={handleStartAdaptive}
-            onStep={handleStep}
+            onStep={networkType === 'dense' ? handleStep : undefined}
             onReset={handleReset}
-            onSettingsChange={handleSettingsChange}
+            onSettingsChange={networkType === 'dense' ? handleSettingsChange : undefined}
             currentArchitecture={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
             currentWeightInit={networkState?.architecture.weight_init ?? 'xavier'}
             currentHiddenActivation={networkState?.architecture.hidden_activation ?? 'relu'}
             currentUseBiases={networkState?.architecture.use_biases ?? true}
+            isCNN={networkType === 'cnn'}
           />
-          <NetworkVisualization
-            layerSizes={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
-            weights={networkState?.weights ?? []}
-            activations={lastPrediction?.activations}
-          />
+          {networkType === 'cnn' ? (
+            <FeatureMapVisualization
+              inputGrid={Array.isArray(inputValues[0]) ? (inputValues as number[][]) : []}
+              featureMaps={featureMaps}
+              architecture={networkState?.architecture ?? null}
+              weights={networkState?.weights ?? []}
+              prediction={
+                lastPrediction?.prediction && Array.isArray(lastPrediction.prediction)
+                  ? lastPrediction.prediction
+                  : null
+              }
+              outputLabels={currentProblem?.output_labels ?? []}
+            />
+          ) : (
+            <NetworkVisualization
+              layerSizes={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
+              weights={networkState?.weights ?? []}
+              activations={lastPrediction?.activations}
+            />
+          )}
         </div>
 
         {/* Bottom row: Loss curve + Terminal */}

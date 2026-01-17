@@ -9,10 +9,10 @@ interface TrainingPanelProps {
   trainingInProgress: boolean;
   trainingComplete: boolean;
   onStartStatic: (epochs: number, learningRate: number) => void;
-  onStartAdaptive: () => void;
-  onStep: (learningRate: number) => void;
+  onStartAdaptive: (targetAccuracy: number) => void;
+  onStep?: (learningRate: number) => void;  // Optional for CNN
   onReset: () => void;
-  onSettingsChange: (settings: {
+  onSettingsChange?: (settings: {  // Optional for CNN
     layers: number[];
     weightInit: WeightInit;
     hiddenActivation: HiddenActivation;
@@ -22,6 +22,7 @@ interface TrainingPanelProps {
   currentWeightInit: WeightInit;
   currentHiddenActivation: HiddenActivation;
   currentUseBiases: boolean;
+  isCNN?: boolean;
 }
 
 export const TrainingPanel = memo(function TrainingPanel({
@@ -39,11 +40,14 @@ export const TrainingPanel = memo(function TrainingPanel({
   currentWeightInit,
   currentHiddenActivation,
   currentUseBiases,
+  isCNN = false,
 }: TrainingPanelProps) {
   const [epochs, setEpochs] = useState(1000);
   const [learningRate, setLearningRate] = useState(0.5);
   const [layerInput, setLayerInput] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  // Target accuracy: default 95% for CNN, 99% for dense
+  const [targetAccuracy, setTargetAccuracy] = useState(isCNN ? 0.95 : 0.99);
 
   // Local state for settings (to batch changes)
   const [weightInit, setWeightInit] = useState<WeightInit>(currentWeightInit);
@@ -66,6 +70,11 @@ export const TrainingPanel = memo(function TrainingPanel({
     setUseBiases(currentUseBiases);
   }, [currentWeightInit, currentHiddenActivation, currentUseBiases]);
 
+  // Update target accuracy default when network type changes
+  useEffect(() => {
+    setTargetAccuracy(isCNN ? 0.95 : 0.99);
+  }, [isCNN]);
+
   // Listen for learning rate preset clicks
   useEffect(() => {
     const handler = (e: CustomEvent<number>) => {
@@ -76,6 +85,8 @@ export const TrainingPanel = memo(function TrainingPanel({
   }, []);
 
   const handleApplySettings = () => {
+    if (!onSettingsChange) return;  // Not available for CNN
+
     const hiddenLayers = layerInput
       .split(',')
       .map((s) => parseInt(s.trim(), 10))
@@ -91,6 +102,9 @@ export const TrainingPanel = memo(function TrainingPanel({
       });
     }
   };
+
+  // Check if customization is available (not for CNN)
+  const canCustomize = !!onSettingsChange;
 
   return (
     <div className="bg-gray-800 rounded-lg p-6">
@@ -114,65 +128,76 @@ export const TrainingPanel = memo(function TrainingPanel({
         </div>
       </div>
 
-      {/* Architecture config */}
-      <div className="mb-4">
-        <label className="block text-gray-400 text-sm mb-2">
-          Hidden Layers (comma-separated)
-        </label>
-        <div className="flex gap-2">
-          <div className="bg-gray-700 px-3 py-2 rounded text-gray-400">{inputSize} →</div>
-          <input
-            type="text"
-            value={layerInput}
-            onChange={(e) => setLayerInput(e.target.value)}
-            placeholder="12, 8, 4"
-            className="flex-1 bg-gray-700 rounded px-3 py-2 text-white"
-            disabled={trainingInProgress}
-          />
-          <div className="bg-gray-700 px-3 py-2 rounded text-gray-400">→ {outputSize}</div>
-        </div>
-        <div className="text-gray-500 text-sm mt-1">
-          Current: [{currentArchitecture.join(' → ')}]
-        </div>
-      </div>
+      {/* Architecture config - only for dense networks */}
+      {canCustomize && (
+        <>
+          <div className="mb-4">
+            <label className="block text-gray-400 text-sm mb-2">
+              Hidden Layers (comma-separated)
+            </label>
+            <div className="flex gap-2">
+              <div className="bg-gray-700 px-3 py-2 rounded text-gray-400">{inputSize} →</div>
+              <input
+                type="text"
+                value={layerInput}
+                onChange={(e) => setLayerInput(e.target.value)}
+                placeholder="12, 8, 4"
+                className="flex-1 bg-gray-700 rounded px-3 py-2 text-white"
+                disabled={trainingInProgress}
+              />
+              <div className="bg-gray-700 px-3 py-2 rounded text-gray-400">→ {outputSize}</div>
+            </div>
+            <div className="text-gray-500 text-sm mt-1">
+              Current: [{currentArchitecture.join(' → ')}]
+            </div>
+          </div>
 
-      {/* Toggle for advanced settings */}
-      <button
-        onClick={() => setShowSettings(!showSettings)}
-        className="w-full mb-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-600 rounded flex items-center justify-center gap-2"
-      >
-        <span>{showSettings ? '▼' : '▶'}</span>
-        <span>Network Settings (learn what each does!)</span>
-      </button>
+          {/* Toggle for advanced settings */}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className="w-full mb-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-600 rounded flex items-center justify-center gap-2"
+          >
+            <span>{showSettings ? '▼' : '▶'}</span>
+            <span>Network Settings (learn what each does!)</span>
+          </button>
 
-      {/* Collapsible settings */}
-      {showSettings && (
-        <div className="mb-4 p-4 bg-gray-700/50 rounded-lg">
-          <NetworkSettings
-            weightInit={weightInit}
-            hiddenActivation={hiddenActivation}
-            useBiases={useBiases}
-            onWeightInitChange={setWeightInit}
-            onHiddenActivationChange={setHiddenActivation}
-            onUseBiasesChange={setUseBiases}
+          {/* Collapsible settings */}
+          {showSettings && (
+            <div className="mb-4 p-4 bg-gray-700/50 rounded-lg">
+              <NetworkSettings
+                weightInit={weightInit}
+                hiddenActivation={hiddenActivation}
+                useBiases={useBiases}
+                onWeightInitChange={setWeightInit}
+                onHiddenActivationChange={setHiddenActivation}
+                onUseBiasesChange={setUseBiases}
+                disabled={trainingInProgress}
+              />
+            </div>
+          )}
+
+          {/* Apply button for architecture + settings */}
+          <button
+            onClick={handleApplySettings}
             disabled={trainingInProgress}
-          />
+            className="w-full mb-4 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 py-2 rounded font-semibold"
+          >
+            Apply Architecture & Settings
+          </button>
+        </>
+      )}
+
+      {/* CNN mode indicator */}
+      {!canCustomize && (
+        <div className="mb-4 p-3 bg-cyan-900/30 border border-cyan-600/30 rounded text-sm text-cyan-300">
+          CNN Mode - Architecture is fixed for shape detection
         </div>
       )}
 
-      {/* Apply button for architecture + settings */}
-      <button
-        onClick={handleApplySettings}
-        disabled={trainingInProgress}
-        className="w-full mb-4 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 py-2 rounded font-semibold"
-      >
-        Apply Architecture & Settings
-      </button>
-
-      {/* Static training params */}
+      {/* Training params */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div>
-          <label className="block text-gray-400 text-sm mb-1">Epochs</label>
+          <label className="block text-gray-400 text-sm mb-1">Epochs (static)</label>
           <input
             type="number"
             value={epochs}
@@ -194,6 +219,28 @@ export const TrainingPanel = memo(function TrainingPanel({
         </div>
       </div>
 
+      {/* Target Accuracy for adaptive training */}
+      <div className="mb-4">
+        <label className="block text-gray-400 text-sm mb-1">
+          Target Accuracy (adaptive): <span className="text-green-400 font-mono">{(targetAccuracy * 100).toFixed(0)}%</span>
+        </label>
+        <input
+          type="range"
+          min={50}
+          max={100}
+          step={1}
+          value={targetAccuracy * 100}
+          onChange={(e) => setTargetAccuracy(parseInt(e.target.value, 10) / 100)}
+          disabled={trainingInProgress}
+          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+        />
+        <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <span>50%</span>
+          <span className="text-gray-400">Default: {isCNN ? '95%' : '99%'}</span>
+          <span>100%</span>
+        </div>
+      </div>
+
       {/* Action buttons */}
       <div className="flex gap-3 mb-3">
         <button
@@ -204,7 +251,7 @@ export const TrainingPanel = memo(function TrainingPanel({
           Train Static
         </button>
         <button
-          onClick={onStartAdaptive}
+          onClick={() => onStartAdaptive(targetAccuracy)}
           disabled={trainingInProgress}
           className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed py-3 rounded font-semibold"
         >
@@ -219,17 +266,19 @@ export const TrainingPanel = memo(function TrainingPanel({
         </button>
       </div>
 
-      {/* Step-by-step training */}
-      <div className="flex gap-3">
-        <button
-          onClick={() => onStep(learningRate)}
-          disabled={trainingInProgress}
-          className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed py-2 rounded font-semibold text-sm"
-          title="Train for 1 epoch - great for watching weights change!"
-        >
-          Step (1 Epoch)
-        </button>
-      </div>
+      {/* Step-by-step training - only for dense networks */}
+      {onStep && (
+        <div className="flex gap-3">
+          <button
+            onClick={() => onStep(learningRate)}
+            disabled={trainingInProgress}
+            className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed py-2 rounded font-semibold text-sm"
+            title="Train for 1 epoch - great for watching weights change!"
+          >
+            Step (1 Epoch)
+          </button>
+        </div>
+      )}
 
       {/* Status message */}
       {trainingInProgress && (

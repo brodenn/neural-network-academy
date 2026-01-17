@@ -182,7 +182,7 @@ export function useNetworkAnimation({
   );
 
   const getConnectionOpacity = useCallback(
-    (fromLayer: number, toLayer: number): number => {
+    (fromLayer: number, _toLayer: number): number => {
       if (!animationState.isAnimating) return 1;
       if (fromLayer < animationState.activeLayer) return 1;
       if (fromLayer === animationState.activeLayer) {

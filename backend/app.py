@@ -18,6 +18,7 @@ from flask_socketio import SocketIO, emit
 import numpy as np
 
 from neural_network import NeuralNetwork, generate_xor_data
+from cnn_network import CNNNetwork
 from gpio_simulator import GPIOSimulator
 from problems import PROBLEMS, get_problem, list_problems
 
@@ -37,6 +38,9 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 # Current problem selection
 current_problem_id = 'xor'
 current_problem = get_problem(current_problem_id)
+
+# Network type ('dense' for standard NN, 'cnn' for convolutional)
+current_network_type = current_problem.info.network_type
 
 # Neural network (initialized from current problem's default architecture)
 nn = NeuralNetwork(
@@ -68,12 +72,12 @@ system_state = {
 # Prediction and Terminal Output (G6)
 # -----------------------------------------------------------------------------
 
-def make_prediction(inputs: list[float]) -> dict:
+def make_prediction(inputs: list[float] | list[list[list[float]]]) -> dict:
     """
     Make prediction for given inputs.
 
     Args:
-        inputs: List of input values (length depends on problem)
+        inputs: List of input values (1D for dense) or 2D grid (for CNN)
 
     Returns:
         Prediction result dictionary with activations for visualization
@@ -83,21 +87,35 @@ def make_prediction(inputs: list[float]) -> dict:
     if not system_state["training_complete"]:
         return {"error": "Training not complete"}
 
-    # Ensure correct input length
-    expected_len = len(current_problem.info.input_labels)
-    if len(inputs) != expected_len:
-        inputs = inputs[:expected_len] if len(inputs) > expected_len else inputs + [0.0] * (expected_len - len(inputs))
+    info = current_problem.info
 
-    current_inputs = inputs
-
-    # Convert to numpy array
-    X = np.array([inputs], dtype=float)
+    # Handle CNN vs Dense input format
+    if current_network_type == 'cnn':
+        # CNN expects 4D input: (batch, height, width, channels)
+        if isinstance(inputs, list) and isinstance(inputs[0], list):
+            # 2D grid input - convert to 4D
+            grid = np.array(inputs, dtype=float)
+            if grid.ndim == 2:
+                grid = grid[:, :, np.newaxis]  # Add channel dimension
+            X = grid[np.newaxis, :, :, :]  # Add batch dimension
+        else:
+            # Flat input - reshape to grid
+            expected_shape = info.input_shape
+            flat = np.array(inputs, dtype=float)
+            X = flat.reshape(1, *expected_shape)
+        current_inputs = inputs
+    else:
+        # Dense network - 1D input
+        expected_len = len(info.input_labels)
+        if len(inputs) != expected_len:
+            inputs = inputs[:expected_len] if len(inputs) > expected_len else inputs + [0.0] * (expected_len - len(inputs))
+        current_inputs = inputs
+        X = np.array([inputs], dtype=float)
 
     # Predict with activations for visualization
     output, activations = nn.predict_with_activations(X)
 
     # Handle different output types
-    info = current_problem.info
     if info.output_activation == 'softmax':
         # Multi-class: return probabilities and predicted class
         probs = output[0].tolist()
@@ -105,11 +123,16 @@ def make_prediction(inputs: list[float]) -> dict:
         prediction_value = probs
         led_on = predicted_class > 0  # For LED, any non-zero class turns it on
 
-        # Get expected class from problem
-        _, expected_y = current_problem.generate_sample(inputs)
-        expected_class = int(np.argmax(expected_y[0]))
-        expected = expected_y[0].tolist()
-        is_correct = predicted_class == expected_class
+        # For CNN, we don't have generate_sample with grid inputs
+        if current_network_type == 'cnn':
+            expected = None
+            is_correct = None
+        else:
+            # Get expected class from problem
+            _, expected_y = current_problem.generate_sample(inputs)
+            expected_class = int(np.argmax(expected_y[0]))
+            expected = expected_y[0].tolist()
+            is_correct = predicted_class == expected_class
     else:
         # Binary/regression: single value
         prediction_value = float(output[0][0])
@@ -131,10 +154,14 @@ def make_prediction(inputs: list[float]) -> dict:
     system_state["prediction_count"] += 1
     print(f"\nInput change detected!")
     print(f"Problem: {info.name}")
-    print(f"Input: {[f'{x:.2f}' for x in inputs]}, Prediction: {prediction_value if isinstance(prediction_value, list) else f'{prediction_value:.2f}'}, "
-          f"LED: {'ON' if led_on else 'OFF'}")
+    if current_network_type == 'cnn':
+        print(f"CNN Input grid, Prediction: {prediction_value}, LED: {'ON' if led_on else 'OFF'}")
+    else:
+        print(f"Input: {[f'{x:.2f}' for x in inputs]}, Prediction: {prediction_value if isinstance(prediction_value, list) else f'{prediction_value:.2f}'}, "
+              f"LED: {'ON' if led_on else 'OFF'}")
 
-    return {
+    # Build response
+    result = {
         "inputs": inputs,
         "prediction": prediction_value,
         "prediction_rounded": predicted_class,
@@ -143,8 +170,15 @@ def make_prediction(inputs: list[float]) -> dict:
         "correct": is_correct,
         "activations": activations,
         "problem_id": current_problem_id,
-        "output_labels": info.output_labels
+        "output_labels": info.output_labels,
+        "network_type": current_network_type
     }
+
+    # Add feature maps for CNN
+    if current_network_type == 'cnn':
+        result["feature_maps"] = nn.get_feature_maps(X)
+
+    return result
 
 
 def on_button_change(button_states: list[int]):
@@ -181,7 +215,7 @@ def training_callback(epoch: int, loss: float, accuracy: float):
         })
 
 
-def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1):
+def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, target_accuracy: float | None = None):
     """Run training in background thread."""
     system_state["training_in_progress"] = True
     system_state["training_complete"] = False
@@ -197,9 +231,15 @@ def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1):
             callback=training_callback
         )
     else:  # adaptive
+        # Use provided target or default based on network type
+        if target_accuracy is None:
+            # CNN can realistically reach ~95%, dense networks can reach 99%
+            target = 0.95 if current_network_type == 'cnn' else 0.99
+        else:
+            target = target_accuracy
         result = nn.train_adaptive(
             X_train, y_train,
-            target_accuracy=0.99,
+            target_accuracy=target,
             verbose=True,
             callback=training_callback
         )
@@ -222,11 +262,24 @@ def print_all_predictions():
     print(f"Prediction accuracy: {accuracy * 100:.1f}%")
 
     predictions = nn.predict(X_train)
-    for i in range(len(X_train)):
-        pred_rounded = round(predictions[i][0])
-        error = abs(pred_rounded - y_train[i][0])
-        print(f"Input: {X_train[i].tolist()}, prediction: [{pred_rounded:.1f}], "
-              f"reference: {y_train[i].tolist()}, error: {error:.1f}")
+
+    if current_network_type == 'cnn':
+        # For CNN, print summary (not all samples)
+        pred_classes = np.argmax(predictions, axis=1)
+        true_classes = np.argmax(y_train, axis=1)
+        info = current_problem.info
+        print(f"\nCNN Shape Detection Summary:")
+        for class_idx, label in enumerate(info.output_labels):
+            mask = true_classes == class_idx
+            class_acc = np.mean(pred_classes[mask] == true_classes[mask]) if np.any(mask) else 0
+            print(f"  {label}: {class_acc*100:.1f}% accuracy ({np.sum(mask)} samples)")
+    else:
+        # Original dense network output
+        for i in range(len(X_train)):
+            pred_rounded = round(predictions[i][0])
+            error = abs(pred_rounded - y_train[i][0])
+            print(f"Input: {X_train[i].tolist()}, prediction: [{pred_rounded:.1f}], "
+                  f"reference: {y_train[i].tolist()}, error: {error:.1f}")
 
     print("-" * 80)
 
@@ -245,7 +298,8 @@ def get_status():
         "current_loss": system_state["current_loss"],
         "current_accuracy": system_state["current_accuracy"],
         "prediction_count": system_state["prediction_count"],
-        "current_problem": current_problem_id
+        "current_problem": current_problem_id,
+        "network_type": current_network_type
     })
 
 
@@ -266,7 +320,8 @@ def get_problem_info(problem_id: str):
         problem = get_problem(problem_id)
         info = problem.info
         X, y = problem.generate_data()
-        return jsonify({
+
+        result = {
             'id': info.id,
             'name': info.name,
             'description': info.description,
@@ -276,10 +331,19 @@ def get_problem_info(problem_id: str):
             'output_labels': info.output_labels,
             'output_activation': info.output_activation,
             'embedded_context': info.embedded_context,
+            'network_type': info.network_type,
+            'input_shape': info.input_shape,
             'sample_count': len(X),
-            'input_size': X.shape[1],
             'output_size': y.shape[1]
-        })
+        }
+
+        # Input size depends on network type
+        if info.network_type == 'cnn':
+            result['input_size'] = info.input_shape
+        else:
+            result['input_size'] = X.shape[1]
+
+        return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
 
@@ -287,7 +351,7 @@ def get_problem_info(problem_id: str):
 @app.route('/api/problems/<problem_id>/select', methods=['POST'])
 def select_problem(problem_id: str):
     """Switch to a different problem."""
-    global current_problem_id, current_problem, nn, X_train, y_train, current_inputs
+    global current_problem_id, current_problem, nn, X_train, y_train, current_inputs, current_network_type
 
     if system_state["training_in_progress"]:
         return jsonify({"error": "Cannot change problem during training"}), 400
@@ -296,18 +360,34 @@ def select_problem(problem_id: str):
         current_problem = get_problem(problem_id)
         current_problem_id = problem_id
         info = current_problem.info
+        current_network_type = info.network_type
 
-        # Create new network with problem's architecture
-        nn = NeuralNetwork(
-            info.default_architecture,
-            output_activation=info.output_activation
-        )
+        # Create new network based on problem type
+        if info.network_type == 'cnn':
+            # CNN network for shape detection
+            nn = CNNNetwork(input_shape=info.input_shape)
+            nn.add_conv2d(filters=4, kernel_size=3, activation='relu')
+            nn.add_maxpool2d(pool_size=2)
+            nn.add_flatten()
+            nn.add_dense(units=16, activation='relu')
+            nn.add_dense(units=len(info.output_labels), activation='softmax')
+        else:
+            # Standard dense network
+            nn = NeuralNetwork(
+                info.default_architecture,
+                output_activation=info.output_activation
+            )
 
         # Generate training data
         X_train, y_train = current_problem.generate_data()
 
         # Reset input state
-        current_inputs = [0.0] * len(info.input_labels)
+        if info.network_type == 'cnn':
+            # For CNN, init with zeros grid
+            h, w, c = info.input_shape
+            current_inputs = [[0.0] * w for _ in range(h)]
+        else:
+            current_inputs = [0.0] * len(info.input_labels)
 
         # Reset training state
         system_state["training_complete"] = False
@@ -317,7 +397,12 @@ def select_problem(problem_id: str):
 
         print(f"\n{'='*60}")
         print(f"Switched to problem: {info.name}")
-        print(f"Architecture: {info.default_architecture}")
+        print(f"Network type: {info.network_type}")
+        if info.network_type == 'cnn':
+            print(f"Input shape: {info.input_shape}")
+            print(f"CNN Architecture: {nn.get_architecture()}")
+        else:
+            print(f"Architecture: {info.default_architecture}")
         print(f"Category: {info.category}")
         print(f"{'='*60}")
 
@@ -333,12 +418,15 @@ def select_problem(problem_id: str):
                 'input_labels': info.input_labels,
                 'output_labels': info.output_labels,
                 'output_activation': info.output_activation,
+                'network_type': info.network_type,
+                'input_shape': info.input_shape,
             }
         })
 
         return jsonify({
             "success": True,
             "problem_id": problem_id,
+            "network_type": info.network_type,
             "architecture": nn.get_architecture()
         })
     except ValueError as e:
@@ -380,7 +468,8 @@ def get_network():
         "weights": nn.get_weights(),
         "loss_history": loss_hist,
         "accuracy_history": acc_hist,
-        "total_epochs": total_epochs
+        "total_epochs": total_epochs,
+        "network_type": current_network_type
     })
 
 
@@ -473,16 +562,27 @@ def start_adaptive_training():
     if system_state["training_in_progress"]:
         return jsonify({"error": "Training already in progress"}), 400
 
+    data = request.json or {}
+    target_accuracy = data.get('target_accuracy', None)
+
+    # Validate target_accuracy if provided
+    if target_accuracy is not None:
+        target_accuracy = float(target_accuracy)
+        if not 0.5 <= target_accuracy <= 1.0:
+            return jsonify({"error": "target_accuracy must be between 0.5 and 1.0"}), 400
+
     # Run in background thread
     thread = threading.Thread(
         target=run_training,
-        args=("adaptive",)
+        args=("adaptive",),
+        kwargs={"target_accuracy": target_accuracy}
     )
     thread.start()
 
     return jsonify({
         "success": True,
-        "mode": "adaptive"
+        "mode": "adaptive",
+        "target_accuracy": target_accuracy
     })
 
 
@@ -772,7 +872,8 @@ def handle_connect():
         "connected": True,
         "training_complete": system_state["training_complete"],
         "training_in_progress": system_state["training_in_progress"],
-        "current_problem": current_problem_id
+        "current_problem": current_problem_id,
+        "network_type": current_network_type
     })
     emit('problem_info', {
         'id': info.id,
@@ -783,6 +884,8 @@ def handle_connect():
         'input_labels': info.input_labels,
         'output_labels': info.output_labels,
         'output_activation': info.output_activation,
+        'network_type': info.network_type,
+        'input_shape': info.input_shape,
     })
     emit('gpio_state', gpio.get_state())
 
