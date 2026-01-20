@@ -68,6 +68,13 @@ export function useSocket(): UseSocketReturn {
       });
     });
 
+    socket.on('network_reset', () => {
+      // Reset all training-related state
+      setTrainingComplete(false);
+      setTrainingProgress({ epoch: 0, loss: 0, accuracy: 0 });
+      setLastPrediction(null);
+    });
+
     socket.on('prediction', (prediction: PredictionResult) => {
       setLastPrediction(prediction);
     });

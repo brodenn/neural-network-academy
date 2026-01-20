@@ -332,7 +332,8 @@ class NeuralNetwork:
         epochs: int,
         learning_rate: float,
         verbose: bool = True,
-        callback: Callable[[int, float, float], None] | None = None
+        callback: Callable[[int, float, float], None] | None = None,
+        stop_check: Callable[[], bool] | None = None
     ) -> dict:
         """
         Static training with user-defined parameters (G4).
@@ -344,6 +345,7 @@ class NeuralNetwork:
             learning_rate: Learning rate for gradient descent
             verbose: Print progress to terminal
             callback: Optional callback(epoch, loss, accuracy) for updates
+            stop_check: Optional callback that returns True to stop training early
 
         Returns:
             Dictionary with training results
@@ -351,6 +353,7 @@ class NeuralNetwork:
         self.learning_rate = learning_rate
         self.loss_history = []
         self.accuracy_history = []
+        stopped = False
 
         if verbose:
             print("-" * 80)
@@ -359,6 +362,13 @@ class NeuralNetwork:
             print("-" * 80)
 
         for epoch in range(epochs):
+            # Check for stop request
+            if stop_check and stop_check():
+                stopped = True
+                if verbose:
+                    print(f"\nTraining stopped by user at epoch {epoch}")
+                break
+
             # Forward pass
             output, activations, z_values = self.forward(X)
 
@@ -384,28 +394,31 @@ class NeuralNetwork:
                 print(f"Epoch {epoch:5d}/{epochs} | Loss: {loss:.6f} | Accuracy: {accuracy*100:.1f}%")
 
         final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
+        actual_epochs = len(self.loss_history)
 
-        if verbose:
+        if verbose and not stopped:
             print("-" * 80)
             print(f"Training complete! Final accuracy: {final_accuracy*100:.1f}%")
             print("-" * 80)
 
         return {
-            "epochs": epochs,
+            "epochs": actual_epochs,
             "final_loss": self.loss_history[-1] if self.loss_history else 0,
             "final_accuracy": final_accuracy,
             "loss_history": self.loss_history,
-            "accuracy_history": self.accuracy_history
+            "accuracy_history": self.accuracy_history,
+            "stopped": stopped
         }
 
     def train_adaptive(
         self,
         X: np.ndarray,
         y: np.ndarray,
-        target_accuracy: float = 0.99,
+        target_accuracy: float | Callable[[], float] = 0.99,
         max_epochs: int = 100000,
         verbose: bool = True,
-        callback: Callable[[int, float, float], None] | None = None
+        callback: Callable[[int, float, float], None] | None = None,
+        stop_check: Callable[[], bool] | None = None
     ) -> dict:
         """
         Adaptive training to ~100% accuracy (VG9).
@@ -417,20 +430,29 @@ class NeuralNetwork:
         - Automatic learning rate adjustment
         - Restarts with new random weights if stuck
         - Continues until target accuracy reached
+        - Target accuracy can be changed during training via callable
 
         Args:
             X: Training input data
             y: Training labels
-            target_accuracy: Target accuracy to reach (default: 0.99)
+            target_accuracy: Target accuracy to reach (float or callable returning float)
             max_epochs: Safety limit for epochs
             verbose: Print progress to terminal
             callback: Optional callback(epoch, loss, accuracy) for updates
+            stop_check: Optional callback that returns True to stop training early
 
         Returns:
             Dictionary with training results
         """
         self.loss_history = []
         self.accuracy_history = []
+        stopped = False
+
+        # Helper to get current target (supports both float and callable)
+        def get_target() -> float:
+            if callable(target_accuracy):
+                return target_accuracy()
+            return target_accuracy
 
         # Adaptive parameters
         initial_lr = 1.0
@@ -444,14 +466,22 @@ class NeuralNetwork:
         restart_count = 0
         max_restarts = 10
 
+        initial_target = get_target()
         if verbose:
             print("-" * 80)
-            print(f"Starting adaptive training (target: {target_accuracy*100:.0f}% accuracy)")
+            print(f"Starting adaptive training (target: {initial_target*100:.0f}% accuracy)")
             print(f"Network architecture: {self.layer_sizes}")
             print("-" * 80)
 
         epoch = 0
         while epoch < max_epochs:
+            # Check for stop request
+            if stop_check and stop_check():
+                stopped = True
+                if verbose:
+                    print(f"\nTraining stopped by user at epoch {epoch}")
+                break
+
             self.learning_rate = lr
 
             # Forward pass
@@ -506,17 +536,19 @@ class NeuralNetwork:
             if verbose and (epoch % 1000 == 0):
                 print(f"Epoch {epoch:5d} | Loss: {loss:.6f} | Accuracy: {accuracy*100:.1f}% | LR: {lr:.4f}")
 
-            # Check if target reached
-            if accuracy >= target_accuracy:
+            # Check if target reached (get current target in case it changed)
+            current_target = get_target()
+            if accuracy >= current_target:
                 if verbose:
-                    print(f"\nTarget accuracy reached at epoch {epoch}!")
+                    print(f"\nTarget accuracy ({current_target*100:.0f}%) reached at epoch {epoch}!")
                 break
 
             epoch += 1
 
         final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
+        final_target = get_target()
 
-        if verbose:
+        if verbose and not stopped:
             print("-" * 80)
             print(f"Adaptive training complete!")
             print(f"Final accuracy: {final_accuracy*100:.1f}%")
@@ -530,8 +562,9 @@ class NeuralNetwork:
             "final_accuracy": final_accuracy,
             "loss_history": self.loss_history,
             "accuracy_history": self.accuracy_history,
-            "target_reached": final_accuracy >= target_accuracy,
-            "restarts": restart_count
+            "target_reached": final_accuracy >= final_target,
+            "restarts": restart_count,
+            "stopped": stopped
         }
 
     def _reinitialize_weights(self) -> None:

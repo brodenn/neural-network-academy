@@ -37,9 +37,9 @@ export const LossCurve = memo(function LossCurve({
 
   if (data.length === 0) {
     return (
-      <div className="bg-gray-800 rounded-lg p-6">
-        <h2 className="text-xl font-semibold mb-4">Training Progress</h2>
-        <div className="h-64 flex items-center justify-center text-gray-500">
+      <div className="bg-gray-800 rounded-lg p-4">
+        <h2 className="text-lg font-semibold mb-2">Training Progress</h2>
+        <div className="h-48 flex items-center justify-center text-gray-500 text-sm">
           No training data yet. Start training to see the loss curve.
         </div>
       </div>
@@ -47,32 +47,33 @@ export const LossCurve = memo(function LossCurve({
   }
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
-      <h2 className="text-xl font-semibold mb-4">Training Progress</h2>
+    <div className="bg-gray-800 rounded-lg p-4">
+      <h2 className="text-lg font-semibold mb-2">Training Progress</h2>
 
-      <div className="h-64 min-h-[256px]">
+      <div className="h-48">
         <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={100}>
-          <LineChart data={data}>
+          <LineChart data={data} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis
               dataKey="epoch"
               stroke="#9CA3AF"
-              tick={{ fill: '#9CA3AF' }}
-              label={{ value: 'Epoch', position: 'bottom', fill: '#9CA3AF' }}
+              tick={{ fill: '#9CA3AF', fontSize: 11 }}
             />
             <YAxis
               yAxisId="loss"
               stroke="#EF4444"
-              tick={{ fill: '#9CA3AF' }}
+              tick={{ fill: '#9CA3AF', fontSize: 11 }}
               domain={[0, 'auto']}
+              width={40}
             />
             <YAxis
               yAxisId="accuracy"
               orientation="right"
               stroke="#22C55E"
-              tick={{ fill: '#9CA3AF' }}
+              tick={{ fill: '#9CA3AF', fontSize: 11 }}
               domain={[0, 1]}
               tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+              width={40}
             />
             <Tooltip
               contentStyle={{
@@ -86,7 +87,7 @@ export const LossCurve = memo(function LossCurve({
                 return [numValue.toFixed(4), 'Loss'];
               }}
             />
-            <Legend />
+            <Legend verticalAlign="top" height={20} />
             <Line
               yAxisId="loss"
               type="monotone"
@@ -109,10 +110,8 @@ export const LossCurve = memo(function LossCurve({
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-4 text-sm text-gray-400 text-center">
-        Epochs: {totalEpochs || lossHistory.length} |
-        Final Loss: {lossHistory[lossHistory.length - 1]?.toFixed(4) ?? '-'} |
-        Final Accuracy: {((accuracyHistory[accuracyHistory.length - 1] ?? 0) * 100).toFixed(1)}%
+      <div className="mt-2 text-xs text-gray-500 text-center">
+        Epochs: {totalEpochs || lossHistory.length} | Loss: {lossHistory[lossHistory.length - 1]?.toFixed(4) ?? '-'} | Acc: {((accuracyHistory[accuracyHistory.length - 1] ?? 0) * 100).toFixed(1)}%
       </div>
     </div>
   );

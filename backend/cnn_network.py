@@ -220,7 +220,8 @@ class CNNNetwork:
         epochs: int,
         learning_rate: float,
         verbose: bool = True,
-        callback: Callable[[int, float, float], None] | None = None
+        callback: Callable[[int, float, float], None] | None = None,
+        stop_check: Callable[[], bool] | None = None
     ) -> dict:
         """
         Train the network with static parameters.
@@ -232,12 +233,14 @@ class CNNNetwork:
             learning_rate: Learning rate
             verbose: Print progress
             callback: Optional callback(epoch, loss, accuracy)
+            stop_check: Optional callback that returns True to stop training early
 
         Returns:
             Dictionary with training results
         """
         self.loss_history = []
         self.accuracy_history = []
+        stopped = False
 
         if verbose:
             print("-" * 60)
@@ -246,6 +249,13 @@ class CNNNetwork:
             print("-" * 60)
 
         for epoch in range(epochs):
+            # Check for stop request
+            if stop_check and stop_check():
+                stopped = True
+                if verbose:
+                    print(f"\nTraining stopped by user at epoch {epoch}")
+                break
+
             # Forward pass
             output, activations = self.forward(X)
 
@@ -268,28 +278,31 @@ class CNNNetwork:
                 print(f"Epoch {epoch:4d}/{epochs} | Loss: {loss:.4f} | Accuracy: {accuracy*100:.1f}%")
 
         final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
+        actual_epochs = len(self.loss_history)
 
-        if verbose:
+        if verbose and not stopped:
             print("-" * 60)
             print(f"Training complete! Final accuracy: {final_accuracy*100:.1f}%")
             print("-" * 60)
 
         return {
-            "epochs": epochs,
+            "epochs": actual_epochs,
             "final_loss": self.loss_history[-1] if self.loss_history else 0,
             "final_accuracy": final_accuracy,
             "loss_history": self.loss_history,
-            "accuracy_history": self.accuracy_history
+            "accuracy_history": self.accuracy_history,
+            "stopped": stopped
         }
 
     def train_adaptive(
         self,
         X: np.ndarray,
         y: np.ndarray,
-        target_accuracy: float = 0.95,
+        target_accuracy: float | Callable[[], float] = 0.95,
         max_epochs: int = 5000,
         verbose: bool = True,
-        callback: Callable[[int, float, float], None] | None = None
+        callback: Callable[[int, float, float], None] | None = None,
+        stop_check: Callable[[], bool] | None = None
     ) -> dict:
         """
         Adaptive training with automatic learning rate adjustment.
@@ -297,16 +310,24 @@ class CNNNetwork:
         Args:
             X: Training data
             y: Labels
-            target_accuracy: Target accuracy to reach
+            target_accuracy: Target accuracy to reach (float or callable returning float)
             max_epochs: Maximum epochs
             verbose: Print progress
             callback: Optional callback
+            stop_check: Optional callback that returns True to stop training early
 
         Returns:
             Dictionary with training results
         """
         self.loss_history = []
         self.accuracy_history = []
+        stopped = False
+
+        # Helper to get current target (supports both float and callable)
+        def get_target() -> float:
+            if callable(target_accuracy):
+                return target_accuracy()
+            return target_accuracy
 
         lr = 0.5  # Start with higher LR
         min_lr = 0.01
@@ -315,14 +336,22 @@ class CNNNetwork:
         best_loss = float('inf')
         epochs_without_improvement = 0
 
+        initial_target = get_target()
         if verbose:
             print("-" * 60)
-            print(f"Starting adaptive CNN training (target: {target_accuracy*100:.0f}%)")
+            print(f"Starting adaptive CNN training (target: {initial_target*100:.0f}%)")
             print(f"Input shape: {X.shape}")
             print("-" * 60)
 
         epoch = 0
         while epoch < max_epochs:
+            # Check for stop request
+            if stop_check and stop_check():
+                stopped = True
+                if verbose:
+                    print(f"\nTraining stopped by user at epoch {epoch}")
+                break
+
             # Forward pass
             output, activations = self.forward(X)
 
@@ -359,17 +388,19 @@ class CNNNetwork:
             if verbose and epoch % 100 == 0:
                 print(f"Epoch {epoch:4d} | Loss: {loss:.4f} | Accuracy: {accuracy*100:.1f}% | LR: {lr:.4f}")
 
-            # Check target
-            if accuracy >= target_accuracy:
+            # Check target (get current target in case it changed)
+            current_target = get_target()
+            if accuracy >= current_target:
                 if verbose:
-                    print(f"\nTarget accuracy reached at epoch {epoch}!")
+                    print(f"\nTarget accuracy ({current_target*100:.0f}%) reached at epoch {epoch}!")
                 break
 
             epoch += 1
 
         final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
+        final_target = get_target()
 
-        if verbose:
+        if verbose and not stopped:
             print("-" * 60)
             print(f"Adaptive training complete!")
             print(f"Final accuracy: {final_accuracy*100:.1f}%")
@@ -382,7 +413,8 @@ class CNNNetwork:
             "final_accuracy": final_accuracy,
             "loss_history": self.loss_history,
             "accuracy_history": self.accuracy_history,
-            "target_reached": final_accuracy >= target_accuracy
+            "target_reached": final_accuracy >= final_target,
+            "stopped": stopped
         }
 
     def get_architecture(self) -> dict:

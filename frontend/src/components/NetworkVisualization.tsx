@@ -1,10 +1,15 @@
 import { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { LayerWeights } from '../types';
+import { DenseNetworkEducationalViz } from './DenseNetworkEducationalViz';
 
 interface NetworkVisualizationProps {
   layerSizes: number[];
   weights: LayerWeights[];
   activations?: number[][];
+  inputLabels?: string[];
+  outputLabels?: string[];
+  outputActivation?: 'sigmoid' | 'softmax';
 }
 
 interface TooltipData {
@@ -18,6 +23,9 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   layerSizes,
   weights,
   activations,
+  inputLabels = [],
+  outputLabels = [],
+  outputActivation = 'sigmoid',
 }: NetworkVisualizationProps) {
   // Use viewBox for responsive scaling
   const viewBoxWidth = 800;
@@ -32,6 +40,8 @@ export const NetworkVisualization = memo(function NetworkVisualization({
     neuron: number;
   } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [showEducational, setShowEducational] = useState(false);
+  const [showLearnHint, setShowLearnHint] = useState(true);
 
   // Animation state
   const [animationProgress, setAnimationProgress] = useState(1);
@@ -280,9 +290,87 @@ export const NetworkVisualization = memo(function NetworkVisualization({
 
   return (
     <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 overflow-hidden">
+      {/* Educational visualization modal */}
+      <AnimatePresence>
+        {showEducational && (
+          <DenseNetworkEducationalViz
+            layerSizes={layerSizes}
+            inputLabels={inputLabels.length > 0 ? inputLabels : layerSizes[0] > 0 ? Array.from({ length: layerSizes[0] }, (_, i) => `Input ${i + 1}`) : []}
+            outputLabels={outputLabels.length > 0 ? outputLabels : ['Output']}
+            outputActivation={outputActivation}
+            onClose={() => setShowEducational(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Prominent Learn Banner */}
+      <AnimatePresence>
+        {showLearnHint && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="mb-3 bg-gradient-to-r from-cyan-900/80 via-purple-900/80 to-cyan-900/80 rounded-lg p-3 border border-cyan-500/30 relative overflow-hidden"
+          >
+            {/* Animated background shimmer */}
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
+              animate={{ x: ['-100%', '100%'] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            />
+
+            <div className="relative flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <motion.div
+                  className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center text-xl"
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  🧠
+                </motion.div>
+                <div>
+                  <div className="text-white font-medium text-sm">New to Neural Networks?</div>
+                  <div className="text-cyan-300/80 text-xs">Interactive step-by-step tutorial available</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <motion.button
+                  onClick={() => {
+                    setShowEducational(true);
+                    setShowLearnHint(false);
+                  }}
+                  className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white font-medium rounded-lg text-sm flex items-center gap-2 shadow-lg shadow-cyan-500/25"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <span>📚</span> Start Learning
+                </motion.button>
+                <button
+                  onClick={() => setShowLearnHint(false)}
+                  className="text-gray-400 hover:text-white p-1"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex justify-between items-center mb-2">
         <h2 className="text-lg font-semibold text-white truncate">Network Architecture</h2>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {!showLearnHint && (
+            <motion.button
+              onClick={() => setShowEducational(true)}
+              className="px-3 py-1.5 text-xs font-medium bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-cyan-500 hover:to-purple-500 text-white rounded-lg transition-all flex items-center gap-1.5 shadow-md"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <span>📚</span> Learn How It Works
+            </motion.button>
+          )}
           {isAnimating && (
             <span className="text-xs text-cyan-400 animate-pulse px-2 py-0.5 bg-cyan-900/30 rounded">
               Forward Pass
@@ -608,22 +696,34 @@ export const NetworkVisualization = memo(function NetworkVisualization({
       </div>
 
       {/* Legend */}
-      <div className="mt-2 flex flex-wrap justify-center gap-3 text-xs text-gray-500">
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-0.5 bg-gradient-to-r from-cyan-500 to-cyan-400 rounded" />
-          <span>+ve</span>
+      <div className="mt-2 border-t border-gray-700/50 pt-2">
+        <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
+          <div className="text-gray-500 font-medium">Weights:</div>
+          <div className="flex items-center gap-1" title="Positive weight: strengthens signal">
+            <div className="w-5 h-0.5 bg-gradient-to-r from-cyan-500 to-cyan-400 rounded" />
+            <span className="text-cyan-400">+ve (excite)</span>
+          </div>
+          <div className="flex items-center gap-1" title="Negative weight: inhibits signal">
+            <div className="w-5 h-0.5 bg-gradient-to-r from-pink-500 to-pink-400 rounded" />
+            <span className="text-pink-400">-ve (inhibit)</span>
+          </div>
+          <div className="text-gray-600">|</div>
+          <div className="text-gray-500 font-medium">Activation:</div>
+          <div className="flex items-center gap-1" title="High activation (>70%)">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-green-400">High</span>
+          </div>
+          <div className="flex items-center gap-1" title="Medium activation (30-70%)">
+            <div className="w-2 h-2 rounded-full bg-cyan-500" />
+            <span className="text-cyan-400">Med</span>
+          </div>
+          <div className="flex items-center gap-1" title="Low activation (<30%)">
+            <div className="w-2 h-2 rounded-full bg-gray-500" />
+            <span className="text-gray-400">Low</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-5 h-0.5 bg-gradient-to-r from-pink-500 to-pink-400 rounded" />
-          <span>-ve</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded-full bg-green-500" />
-          <span>&gt;0.7</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="w-2 h-2 rounded-full bg-cyan-500" />
-          <span>&gt;0.3</span>
+        <div className="text-center text-gray-600 text-xs mt-1">
+          Hover over nodes and connections for details
         </div>
       </div>
     </div>

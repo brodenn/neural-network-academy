@@ -1,4 +1,7 @@
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { CNNFeatureMaps, NetworkArchitecture, LayerWeights } from '../types';
+import { CNNEducationalViz } from './CNNEducationalViz';
 
 interface FeatureMapVisualizationProps {
   inputGrid: number[][];
@@ -21,7 +24,7 @@ function Heatmap({
   size?: 'sm' | 'md' | 'lg';
   colorScheme?: 'cyan' | 'green' | 'purple' | 'orange';
 }) {
-  const cellSizes = { sm: 6, md: 10, lg: 16 };
+  const cellSizes = { sm: 12, md: 16, lg: 20 };
   const cellSize = cellSizes[size];
 
   // Normalize data to 0-1 range
@@ -119,6 +122,48 @@ function FilterVisualization({
   );
 }
 
+// Layer explanations for tooltips
+const LAYER_EXPLANATIONS: Record<string, { title: string; description: string; icon: string }> = {
+  conv: {
+    title: 'Convolution Layer',
+    description: 'Detects patterns (edges, shapes) by sliding filters across the input. Each filter learns to detect different features.',
+    icon: '🔍',
+  },
+  pool: {
+    title: 'Max Pooling Layer',
+    description: 'Reduces size by keeping only the maximum value in each region. Makes the network faster and more robust to small shifts.',
+    icon: '📉',
+  },
+};
+
+// Info tooltip component
+function InfoTooltip({ type }: { type: 'conv' | 'pool' }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const info = LAYER_EXPLANATIONS[type];
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={() => setShowTooltip(!showTooltip)}
+        className="ml-2 w-5 h-5 rounded-full bg-gray-600 hover:bg-gray-500 text-xs text-gray-300 inline-flex items-center justify-center"
+      >
+        ?
+      </button>
+      {showTooltip && (
+        <div className="absolute z-10 left-6 top-0 w-64 p-3 bg-gray-700 rounded-lg shadow-xl border border-gray-600">
+          <div className="flex items-center gap-2 mb-1">
+            <span>{info.icon}</span>
+            <span className="font-medium text-white text-sm">{info.title}</span>
+          </div>
+          <p className="text-xs text-gray-300">{info.description}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Display feature maps from CNN layers
 function FeatureMapsDisplay({
   featureMaps,
@@ -158,22 +203,26 @@ function FeatureMapsDisplay({
 
         const isPool = layerName.includes('pool');
         const colorScheme = isPool ? 'green' : 'cyan';
+        const layerType = isPool ? 'pool' : 'conv';
 
         return (
           <div key={layerName} className="bg-gray-800 rounded-lg p-3">
-            <h3 className="text-sm font-medium text-gray-300 mb-2">
-              {layerName.replace('_', ' ').replace('conv2d', 'Conv').replace('maxpool', 'MaxPool')}
+            <h3 className="text-sm font-medium text-gray-300 mb-2 flex items-center">
+              <span className={isPool ? 'text-green-400' : 'text-cyan-400'}>
+                {layerName.replace('_', ' ').replace('conv2d', 'Conv').replace('maxpool', 'MaxPool')}
+              </span>
               <span className="text-xs text-gray-500 ml-2">
                 {height}×{width}×{channels}
               </span>
+              <InfoTooltip type={layerType} />
             </h3>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-3 flex-wrap">
               {channelMaps.map((channelData, i) => (
                 <Heatmap
                   key={i}
                   data={channelData}
                   title={`Ch${i + 1}`}
-                  size="sm"
+                  size="md"
                   colorScheme={colorScheme}
                 />
               ))}
@@ -244,12 +293,92 @@ export function FeatureMapVisualization({
   prediction,
   outputLabels,
 }: FeatureMapVisualizationProps) {
+  const [showEducational, setShowEducational] = useState(false);
+  const [showLearnHint, setShowLearnHint] = useState(true);
+
   return (
     <div className="space-y-4">
-      {/* Architecture info */}
+      {/* Educational visualization modal */}
+      <AnimatePresence>
+        {showEducational && inputGrid.length > 0 && (
+          <CNNEducationalViz
+            inputGrid={inputGrid}
+            onClose={() => setShowEducational(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Prominent Learn Banner */}
+      <AnimatePresence>
+        {showLearnHint && inputGrid.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="bg-gradient-to-r from-purple-900/80 via-cyan-900/80 to-purple-900/80 rounded-lg p-3 border border-purple-500/30 relative overflow-hidden"
+          >
+            {/* Animated background shimmer */}
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
+              animate={{ x: ['-100%', '100%'] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            />
+
+            <div className="relative flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <motion.div
+                  className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center text-xl"
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  🔍
+                </motion.div>
+                <div>
+                  <div className="text-white font-medium text-sm">Learn CNN Step-by-Step</div>
+                  <div className="text-purple-300/80 text-xs">See how convolution, pooling & more work</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <motion.button
+                  onClick={() => {
+                    setShowEducational(true);
+                    setShowLearnHint(false);
+                  }}
+                  className="px-4 py-2 bg-purple-500 hover:bg-purple-400 text-white font-medium rounded-lg text-sm flex items-center gap-2 shadow-lg shadow-purple-500/25"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <span>📚</span> Start Learning
+                </motion.button>
+                <button
+                  onClick={() => setShowLearnHint(false)}
+                  className="text-gray-400 hover:text-white p-1"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Architecture info with Learn button */}
       {architecture && (
         <div className="bg-gray-800 rounded-lg p-3">
-          <h3 className="text-sm font-medium text-gray-300 mb-1">CNN Architecture</h3>
+          <div className="flex justify-between items-start mb-1">
+            <h3 className="text-sm font-medium text-gray-300">CNN Architecture</h3>
+            {!showLearnHint && (
+              <motion.button
+                onClick={() => setShowEducational(true)}
+                className="px-3 py-1.5 text-xs font-medium bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white rounded-lg transition-all flex items-center gap-1.5 shadow-md"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <span>📚</span> Learn How It Works
+              </motion.button>
+            )}
+          </div>
           <div className="text-xs text-gray-500">
             {architecture.layers?.join(' → ')}
           </div>

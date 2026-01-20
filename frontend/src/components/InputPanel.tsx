@@ -183,6 +183,7 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [brushValue, setBrushValue] = useState(1.0);
+  const [eraseMode, setEraseMode] = useState(false);
 
   const handleGridCellChange = useCallback((row: number, col: number, value: number) => {
     const newGrid = gridValues.map((r, ri) =>
@@ -191,33 +192,40 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
     onChange(newGrid);
   }, [gridValues, onChange]);
 
-  const handleMouseDown = (row: number, col: number) => {
+  const handleMouseDown = (row: number, col: number, e: React.MouseEvent) => {
     if (disabled) return;
+    e.preventDefault();
     setIsDrawing(true);
-    handleGridCellChange(row, col, brushValue);
+    // Right-click or erase mode = erase (set to 0)
+    const value = e.button === 2 || eraseMode ? 0 : brushValue;
+    handleGridCellChange(row, col, value);
   };
 
-  const handleMouseEnter = (row: number, col: number) => {
+  const handleMouseEnter = (row: number, col: number, e: React.MouseEvent) => {
     if (!isDrawing || disabled) return;
-    handleGridCellChange(row, col, brushValue);
+    // Use erase mode or check if right button is held
+    const value = eraseMode || e.buttons === 2 ? 0 : brushValue;
+    handleGridCellChange(row, col, value);
   };
 
   const handleMouseUp = () => {
     setIsDrawing(false);
   };
 
-  // Shape preset generators
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault(); // Disable context menu on grid
+  };
+
+  // Shape preset generators - matching training data patterns
   const generateCircle = () => {
     const grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
     const center = 3.5;  // Center of 8x8 grid
-    const outerRadius = 3.5;
-    const innerRadius = 1.8;  // Creates a ring/donut shape
+    const radius = 3.0;  // Filled circle, matches training data
     for (let i = 0; i < gridSize; i++) {
       for (let j = 0; j < gridSize; j++) {
         const dist = Math.sqrt((i - center) ** 2 + (j - center) ** 2);
-        // Ring: fill pixels between inner and outer radius
-        if (dist <= outerRadius && dist >= innerRadius) {
-          grid[i][j] = 1.0;
+        if (dist < radius) {
+          grid[i][j] = 0.9;
         }
       }
     }
@@ -226,10 +234,11 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
 
   const generateSquare = () => {
     const grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
-    // Sharp corners distinguish it from circle
-    for (let i = 1; i < 7; i++) {
-      for (let j = 1; j < 7; j++) {
-        grid[i][j] = 1.0;
+    // Filled square with margin, matches training data
+    const margin = 1;
+    for (let i = margin; i < gridSize - margin; i++) {
+      for (let j = margin; j < gridSize - margin; j++) {
+        grid[i][j] = 0.9;
       }
     }
     onChange(grid);
@@ -237,15 +246,21 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
 
   const generateTriangle = () => {
     const grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
-    // Upward pointing triangle
-    for (let row = 0; row < gridSize; row++) {
-      // Width increases as we go down (apex at top)
-      const halfWidth = Math.floor(row / 2) + 1;
-      const center = Math.floor(gridSize / 2);
-      for (let col = center - halfWidth; col <= center + halfWidth; col++) {
-        if (col >= 0 && col < gridSize && row >= 1) {
-          grid[row][col] = 1.0;
-        }
+    // Upward pointing triangle (apex at top), matches training data
+    const topRow = 1;
+    const bottomRow = 7;
+    const height = bottomRow - topRow;
+    const centerX = 3.5;
+
+    for (let row = topRow; row <= bottomRow; row++) {
+      // Progress from apex to base
+      const progress = (row - topRow) / height;
+      // Width grows from 0.5 (apex) to 3.0 (base)
+      const halfWidth = 0.5 + progress * 2.5;
+      const left = Math.max(0, Math.floor(centerX - halfWidth + 0.5));
+      const right = Math.min(gridSize, Math.floor(centerX + halfWidth + 0.5));
+      for (let col = left; col < right; col++) {
+        grid[row][col] = 0.9;
       }
     }
     onChange(grid);
@@ -290,7 +305,7 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
   const isArrowProblem = problem?.id === 'arrow_direction';
 
   const renderGridInputs = () => (
-    <div className="space-y-3" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+    <div className="space-y-3" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onContextMenu={handleContextMenu}>
       {/* Drawing grid */}
       <div
         className="grid gap-0.5 bg-gray-900 p-2 rounded-lg select-none"
@@ -305,10 +320,10 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
             return (
               <div
                 key={`${rowIdx}-${colIdx}`}
-                onMouseDown={() => handleMouseDown(rowIdx, colIdx)}
-                onMouseEnter={() => handleMouseEnter(rowIdx, colIdx)}
-                className={`aspect-square rounded-sm transition-colors cursor-pointer ${
-                  disabled ? 'opacity-50 cursor-not-allowed' : ''
+                onMouseDown={(e) => handleMouseDown(rowIdx, colIdx, e)}
+                onMouseEnter={(e) => handleMouseEnter(rowIdx, colIdx, e)}
+                className={`aspect-square rounded-sm transition-colors ${
+                  disabled ? 'opacity-50 cursor-not-allowed' : eraseMode ? 'cursor-crosshair' : 'cursor-pointer'
                 }`}
                 style={{ backgroundColor: bgColor }}
               />
@@ -317,21 +332,33 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
         )}
       </div>
 
-      {/* Brush intensity slider */}
+      {/* Brush controls */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-400">Brush:</span>
+        <button
+          onClick={() => setEraseMode(!eraseMode)}
+          disabled={disabled}
+          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+            eraseMode
+              ? 'bg-red-600 text-white'
+              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+          } disabled:opacity-50`}
+          title="Toggle erase mode (or right-click to erase)"
+        >
+          {eraseMode ? '🧹 Erase' : '✏️ Draw'}
+        </button>
         <input
           type="range"
-          min={0}
+          min={0.1}
           max={1}
           step={0.1}
           value={brushValue}
           onChange={(e) => setBrushValue(parseFloat(e.target.value))}
-          disabled={disabled}
-          className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+          disabled={disabled || eraseMode}
+          className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 disabled:opacity-50"
         />
-        <span className="text-xs text-cyan-400 font-mono w-8">{brushValue.toFixed(1)}</span>
+        <span className="text-xs text-cyan-400 font-mono w-8">{eraseMode ? '0.0' : brushValue.toFixed(1)}</span>
       </div>
+      <p className="text-xs text-gray-500">Right-click to erase, left-click to draw</p>
 
       {/* Preset buttons - shapes, digits, or arrows depending on problem */}
       {isDigitProblem ? (

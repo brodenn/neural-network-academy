@@ -46,18 +46,17 @@ export const TerminalOutput = memo(function TerminalOutput({
   const displayPredictions = predictions.slice(-maxLines);
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
-      <h2 className="text-xl font-semibold mb-4">Terminal Output (G6)</h2>
+    <div className="bg-gray-800 rounded-lg p-4">
+      <h2 className="text-lg font-semibold mb-2">Terminal Output (G6)</h2>
 
       <div
         ref={containerRef}
-        className="bg-black rounded p-4 font-mono text-sm h-48 overflow-y-auto"
+        className="bg-black rounded p-3 font-mono text-xs h-40 overflow-y-auto"
       >
         {displayPredictions.length === 0 ? (
           <div className="text-gray-500">
-            Waiting for predictions...
-            <br />
-            Click buttons after training completes.
+            Waiting for predictions...<br />
+            Click inputs after training.
           </div>
         ) : (
           displayPredictions

@@ -1,8 +1,8 @@
 """
-Embedded NN Learning Lab - Flask Backend
+Neural Network Learning Lab - Flask Backend
 
-Interactive neural network learning tool for embedded systems problems.
-Supports multiple problem types: XOR, sensor fusion, PWM control, anomaly detection, gesture classification.
+Interactive neural network learning tool with progressive problems.
+Learn neural network concepts from basic logic gates to CNNs.
 
 Run with: python app.py
 """
@@ -61,6 +61,8 @@ current_inputs: list[float] = [0.0] * len(current_problem.info.input_labels)
 system_state = {
     "training_complete": False,
     "training_in_progress": False,
+    "stop_requested": False,
+    "target_accuracy": 0.99,  # Can be changed during training
     "current_epoch": 0,
     "current_loss": 0.0,
     "current_accuracy": 0.0,
@@ -215,44 +217,74 @@ def training_callback(epoch: int, loss: float, accuracy: float):
         })
 
 
+def stop_check() -> bool:
+    """Check if training stop has been requested."""
+    return system_state["stop_requested"]
+
+
+def get_target_accuracy() -> float:
+    """Get current target accuracy (can be changed during training)."""
+    return system_state["target_accuracy"]
+
+
 def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, target_accuracy: float | None = None):
     """Run training in background thread."""
     system_state["training_in_progress"] = True
     system_state["training_complete"] = False
+    system_state["stop_requested"] = False
 
-    socketio.emit('training_started', {"mode": mode})
+    # Set initial target accuracy
+    if target_accuracy is None:
+        # CNN can realistically reach ~95%, dense networks can reach 99%
+        system_state["target_accuracy"] = 0.95 if current_network_type == 'cnn' else 0.99
+    else:
+        system_state["target_accuracy"] = target_accuracy
 
-    if mode == "static":
-        result = nn.train(
-            X_train, y_train,
-            epochs=epochs,
-            learning_rate=learning_rate,
-            verbose=True,
-            callback=training_callback
-        )
-    else:  # adaptive
-        # Use provided target or default based on network type
-        if target_accuracy is None:
-            # CNN can realistically reach ~95%, dense networks can reach 99%
-            target = 0.95 if current_network_type == 'cnn' else 0.99
+    socketio.emit('training_started', {"mode": mode, "target_accuracy": system_state["target_accuracy"]})
+
+    try:
+        if mode == "static":
+            result = nn.train(
+                X_train, y_train,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                verbose=True,
+                callback=training_callback,
+                stop_check=stop_check
+            )
+        else:  # adaptive
+            # Pass the getter function so target can be changed during training
+            result = nn.train_adaptive(
+                X_train, y_train,
+                target_accuracy=get_target_accuracy,  # Pass function, not value
+                verbose=True,
+                callback=training_callback,
+                stop_check=stop_check
+            )
+
+        # Mark as complete even if stopped early (allows predictions)
+        system_state["training_complete"] = True
+
+        # Check if stopped by user
+        if result.get("stopped"):
+            print("\nTraining stopped by user")
+            socketio.emit('training_stopped', result)
         else:
-            target = target_accuracy
-        result = nn.train_adaptive(
-            X_train, y_train,
-            target_accuracy=target,
-            verbose=True,
-            callback=training_callback
-        )
+            # Print all predictions in required format (G6)
+            print_all_predictions()
+            socketio.emit('training_complete', result)
 
-    system_state["training_complete"] = True
-    system_state["training_in_progress"] = False
+        return result
 
-    # Print all predictions in required format (G6)
-    print_all_predictions()
+    except Exception as e:
+        print(f"\nTraining error: {e}")
+        socketio.emit('training_error', {"error": str(e)})
+        return {"error": str(e)}
 
-    socketio.emit('training_complete', result)
-
-    return result
+    finally:
+        # Always reset training_in_progress, even on error
+        system_state["training_in_progress"] = False
+        system_state["stop_requested"] = False
 
 
 def print_all_predictions():
@@ -353,8 +385,11 @@ def select_problem(problem_id: str):
     """Switch to a different problem."""
     global current_problem_id, current_problem, nn, X_train, y_train, current_inputs, current_network_type
 
+    # Force reset training state when switching problems
+    # This allows recovery from stuck training states
     if system_state["training_in_progress"]:
-        return jsonify({"error": "Cannot change problem during training"}), 400
+        print("\nWarning: Forcing training stop due to problem switch")
+        system_state["training_in_progress"] = False
 
     try:
         current_problem = get_problem(problem_id)
@@ -389,8 +424,9 @@ def select_problem(problem_id: str):
         else:
             current_inputs = [0.0] * len(info.input_labels)
 
-        # Reset training state
+        # Reset training state completely
         system_state["training_complete"] = False
+        system_state["training_in_progress"] = False
         system_state["current_epoch"] = 0
         system_state["current_loss"] = 0.0
         system_state["current_accuracy"] = 0.0
@@ -586,6 +622,55 @@ def start_adaptive_training():
     })
 
 
+@app.route('/api/train/stop', methods=['POST'])
+def stop_training():
+    """Stop training early (user satisfied with current accuracy)."""
+    if not system_state["training_in_progress"]:
+        return jsonify({"error": "No training in progress"}), 400
+
+    system_state["stop_requested"] = True
+    print("\nStop training requested by user...")
+
+    return jsonify({
+        "success": True,
+        "message": "Stop requested, training will stop after current epoch"
+    })
+
+
+@app.route('/api/train/target', methods=['POST'])
+def update_target_accuracy():
+    """Update target accuracy during training."""
+    if not system_state["training_in_progress"]:
+        return jsonify({"error": "No training in progress"}), 400
+
+    data = request.json or {}
+    new_target = data.get('target_accuracy')
+
+    if new_target is None:
+        return jsonify({"error": "target_accuracy is required"}), 400
+
+    new_target = float(new_target)
+    if not 0.5 <= new_target <= 1.0:
+        return jsonify({"error": "target_accuracy must be between 0.5 and 1.0"}), 400
+
+    old_target = system_state["target_accuracy"]
+    system_state["target_accuracy"] = new_target
+
+    print(f"\nTarget accuracy changed: {old_target*100:.0f}% -> {new_target*100:.0f}%")
+
+    # Notify frontend
+    socketio.emit('target_changed', {
+        "old_target": old_target,
+        "new_target": new_target
+    })
+
+    return jsonify({
+        "success": True,
+        "old_target": old_target,
+        "new_target": new_target
+    })
+
+
 @app.route('/api/train/step', methods=['POST'])
 def train_step():
     """Run a single training epoch (for step-by-step learning)."""
@@ -654,7 +739,7 @@ def export_to_c():
 
     # Generate C header file
     c_code = f'''/**
- * Neural Network - Auto-generated from Embedded NN Learning Lab
+ * Neural Network - Auto-generated from Neural Network Learning Lab
  * Problem: {info.name}
  * Architecture: {nn.layer_sizes}
  *
@@ -754,14 +839,23 @@ void nn_predict(const float* input, float* output) {{
 
 @app.route('/api/network/reset', methods=['POST'])
 def reset_network():
-    """Reset network weights."""
+    """Reset network weights and training state."""
     nn.reset()
     system_state["training_complete"] = False
+    system_state["training_in_progress"] = False  # Force reset stuck training
     system_state["current_epoch"] = 0
     system_state["current_loss"] = 0.0
     system_state["current_accuracy"] = 0.0
 
     print("\nNetwork weights reset")
+
+    # Notify clients of reset - this resets the training progress display
+    socketio.emit('network_reset', {
+        "training_complete": False,
+        "training_in_progress": False,
+        "current_problem": current_problem_id,
+        "network_type": current_network_type
+    })
 
     return jsonify({"success": True})
 
@@ -859,6 +953,73 @@ def get_training_data():
     })
 
 
+@app.route('/api/decision-boundary', methods=['GET'])
+def get_decision_boundary():
+    """
+    Get decision boundary visualization data for 2D problems.
+    Returns a grid of predictions for visualizing how the network classifies 2D space.
+    """
+    if not system_state["training_complete"]:
+        return jsonify({"error": "Training not complete"}), 400
+
+    info = current_problem.info
+
+    # Only works for 2D input problems
+    if len(info.input_labels) != 2:
+        return jsonify({"error": "Decision boundary only available for 2D input problems"}), 400
+
+    # Get grid resolution from query params (default 50x50)
+    resolution = request.args.get('resolution', 50, type=int)
+    resolution = min(max(resolution, 10), 100)  # Clamp between 10 and 100
+
+    # Get range from query params (default -1 to 1)
+    x_min = request.args.get('x_min', -1.0, type=float)
+    x_max = request.args.get('x_max', 1.0, type=float)
+    y_min = request.args.get('y_min', -1.0, type=float)
+    y_max = request.args.get('y_max', 1.0, type=float)
+
+    # Create grid of points
+    x_range = np.linspace(x_min, x_max, resolution)
+    y_range = np.linspace(y_min, y_max, resolution)
+
+    # Generate all (x, y) combinations
+    grid_points = []
+    for y in y_range:
+        for x in x_range:
+            grid_points.append([x, y])
+
+    X_grid = np.array(grid_points)
+
+    # Get predictions for all points
+    predictions = nn.predict(X_grid)
+
+    # Reshape predictions to grid format
+    if info.output_activation == 'softmax':
+        # Multi-class: get the predicted class for each point
+        pred_grid = np.argmax(predictions, axis=1).reshape(resolution, resolution)
+        # Also get confidence (max probability)
+        confidence_grid = np.max(predictions, axis=1).reshape(resolution, resolution)
+    else:
+        # Binary: get probability
+        pred_grid = predictions[:, 0].reshape(resolution, resolution)
+        confidence_grid = pred_grid  # For binary, prediction IS confidence
+
+    return jsonify({
+        "predictions": pred_grid.tolist(),
+        "confidence": confidence_grid.tolist(),
+        "x_range": x_range.tolist(),
+        "y_range": y_range.tolist(),
+        "resolution": resolution,
+        "problem_id": current_problem_id,
+        "category": info.category,
+        "output_labels": info.output_labels,
+        "training_data": {
+            "inputs": X_train.tolist(),
+            "labels": y_train.tolist()
+        }
+    })
+
+
 # -----------------------------------------------------------------------------
 # WebSocket Events
 # -----------------------------------------------------------------------------
@@ -927,7 +1088,7 @@ def handle_set_inputs(data):
 def startup_training():
     """Run training on startup (as per assignment requirement)."""
     print("\n" + "=" * 80)
-    print("Embedded NN Learning Lab - Starting Up")
+    print("Neural Network Learning Lab - Starting Up")
     print("=" * 80)
     info = current_problem.info
     print(f"\nCurrent problem: {info.name}")

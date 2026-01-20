@@ -8,6 +8,7 @@ import { LossCurve } from './components/LossCurve';
 import { NetworkVisualization } from './components/NetworkVisualization';
 import { FeatureMapVisualization } from './components/FeatureMapVisualization';
 import { TerminalOutput } from './components/TerminalOutput';
+import { DecisionBoundaryViz } from './components/DecisionBoundaryViz';
 import type { NetworkState, PredictionResult, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
 
 const API_URL = 'http://localhost:5000';
@@ -96,14 +97,22 @@ function App() {
         fetchNetworkState();
       };
 
+      const handleTrainingStopped = () => {
+        // Training was stopped by user
+        setTrainingInProgress(false);
+        fetchNetworkState();
+      };
+
       socket.on('problem_info', handleProblemInfo);
       socket.on('problem_changed', handleProblemChanged);
       socket.on('training_complete', handleTrainingComplete);
+      socket.on('training_stopped', handleTrainingStopped);
 
       return () => {
         socket.off('problem_info', handleProblemInfo);
         socket.off('problem_changed', handleProblemChanged);
         socket.off('training_complete', handleTrainingComplete);
+        socket.off('training_stopped', handleTrainingStopped);
       };
     }
   }, [socket, fetchNetworkState]);
@@ -184,6 +193,26 @@ function App() {
     }
   };
 
+  const handleStop = async () => {
+    try {
+      await fetch(`${API_URL}/api/train/stop`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to stop training:', err);
+    }
+  };
+
+  const handleUpdateTarget = async (targetAccuracy: number) => {
+    try {
+      await fetch(`${API_URL}/api/train/target`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_accuracy: targetAccuracy }),
+      });
+    } catch (err) {
+      console.error('Failed to update target accuracy:', err);
+    }
+  };
+
   const handleReset = async () => {
     try {
       await fetch(`${API_URL}/api/network/reset`, { method: 'POST' });
@@ -245,34 +274,34 @@ function App() {
   }, [trainingComplete, trainingInProgress, fetchNetworkState]);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 p-6">
-      {/* Header */}
-      <header className="max-w-7xl mx-auto mb-6">
-        <h1 className="text-3xl font-bold text-center">
-          Embedded NN Learning Lab
-        </h1>
-        <p className="text-gray-400 text-center mt-2">
-          Interactive Neural Network for Embedded Systems Problems
-        </p>
-        <div className="flex justify-center gap-4 mt-4 text-sm">
-          <span className={`px-3 py-1 rounded ${connected ? 'bg-green-600' : 'bg-red-600'}`}>
-            {connected ? 'Connected' : 'Disconnected'}
-          </span>
-          <span className={`px-3 py-1 rounded ${trainingComplete ? 'bg-green-600' : 'bg-yellow-600'}`}>
-            {trainingComplete ? 'Ready' : 'Training...'}
-          </span>
-          {currentProblem && (
-            <span className="px-3 py-1 rounded bg-cyan-600/50">
-              {currentProblem.name}
+    <div className="min-h-screen bg-gray-900 text-gray-100 p-4">
+      {/* Header - compact */}
+      <header className="max-w-7xl mx-auto mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">Neural Network Learning Lab</h1>
+            <p className="text-gray-500 text-sm">Learn Neural Networks from Scratch - Interactive Visualization</p>
+          </div>
+          <div className="flex gap-2 text-xs">
+            <span className={`px-2 py-1 rounded ${connected ? 'bg-green-600' : 'bg-red-600'}`}>
+              {connected ? 'Connected' : 'Disconnected'}
             </span>
-          )}
+            <span className={`px-2 py-1 rounded ${trainingComplete ? 'bg-green-600' : 'bg-yellow-600'}`}>
+              {trainingComplete ? 'Ready' : 'Training...'}
+            </span>
+            {currentProblem && (
+              <span className="px-2 py-1 rounded bg-cyan-600/50">
+                {currentProblem.name}
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto">
         {/* Top row: Problem selector + Input + Output */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 items-start">
           <ProblemSelector
             problems={problems}
             currentProblem={currentProblem}
@@ -292,7 +321,7 @@ function App() {
         </div>
 
         {/* Middle row: Training controls + Network viz */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4 items-start">
           <TrainingPanel
             currentEpoch={trainingProgress?.epoch ?? 0}
             currentLoss={trainingProgress?.loss ?? 0}
@@ -302,6 +331,8 @@ function App() {
             onStartStatic={handleStartStatic}
             onStartAdaptive={handleStartAdaptive}
             onStep={networkType === 'dense' ? handleStep : undefined}
+            onStop={handleStop}
+            onUpdateTarget={handleUpdateTarget}
             onReset={handleReset}
             onSettingsChange={networkType === 'dense' ? handleSettingsChange : undefined}
             currentArchitecture={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
@@ -328,26 +359,39 @@ function App() {
               layerSizes={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
               weights={networkState?.weights ?? []}
               activations={lastPrediction?.activations}
+              inputLabels={currentProblem?.input_labels ?? []}
+              outputLabels={currentProblem?.output_labels ?? []}
+              outputActivation={currentProblem?.output_activation ?? 'sigmoid'}
             />
           )}
         </div>
 
-        {/* Bottom row: Loss curve + Terminal */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Bottom row: Loss curve + Decision Boundary (for 2D) + Terminal */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
           <LossCurve
             lossHistory={networkState?.loss_history ?? []}
             accuracyHistory={networkState?.accuracy_history ?? []}
             totalEpochs={networkState?.total_epochs}
+          />
+          <DecisionBoundaryViz
+            problemId={currentProblem?.id ?? ''}
+            trainingComplete={trainingComplete}
+            currentEpoch={trainingProgress?.epoch ?? 0}
+            onPointClick={(x, y) => {
+              // When user clicks on decision boundary, update input values
+              setInputValues([x, y]);
+              if (socket && trainingComplete) {
+                socket.emit('set_inputs', { inputs: [x, y] });
+              }
+            }}
           />
           <TerminalOutput predictions={predictions} />
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="max-w-7xl mx-auto mt-8 text-center text-gray-500 text-sm">
-        <p>
-          Neural Network from Scratch | NumPy Only | {problems.length} Problems | Interactive Learning Tool
-        </p>
+      <footer className="max-w-7xl mx-auto mt-4 text-center text-gray-600 text-xs">
+        Learn Neural Networks from Scratch | Pure NumPy Implementation | {problems.length} Progressive Problems
       </footer>
     </div>
   );
