@@ -116,6 +116,14 @@ export interface ProblemInfo {
   concept: string;  // What this problem teaches
   learning_goal: string;  // What the student should learn
   tips: string[];  // Hints for solving
+  // Level and failure case fields
+  level: number;  // Explicit level number (1-7)
+  is_failure_case: boolean;  // If true, expected to fail
+  failure_reason?: string;  // Why it fails (for failure cases)
+  fix_suggestion?: string;  // How to fix it (for failure cases)
+  locked_architecture: boolean;  // Cannot change architecture
+  forced_weight_init?: WeightInit;  // Force specific init type
+  forced_learning_rate?: number;  // Force specific LR
   // Optional/legacy fields
   embedded_context?: string;  // Deprecated, kept for backwards compatibility
   sample_count?: number;
@@ -138,39 +146,59 @@ export interface InputConfig {
 
 export function getInputConfigForProblem(problem: ProblemInfo): InputConfig {
   switch (problem.id) {
-    // Level 1: Logic gates - binary inputs
+    // Level 1: Single Neuron - binary inputs
     case 'and_gate':
     case 'or_gate':
+    case 'nand_gate':
+      return { type: 'binary', labels: problem.input_labels };
+    case 'not_gate':
       return { type: 'binary', labels: problem.input_labels };
 
-    // Level 2: XOR problems
+    // Level 2: Hidden Layers - XOR problems
     case 'xor':
+    case 'xnor':
       return { type: 'binary', labels: problem.input_labels };
     case 'xor_5bit':
       return { type: 'binary', labels: problem.input_labels };
 
-    // Level 3: 2D decision boundaries - slider for x,y coordinates
+    // Level 3: Decision Boundaries - slider for x,y coordinates
+    case 'two_blobs':
+    case 'moons':
     case 'circle':
     case 'donut':
     case 'spiral':
       return { type: 'slider', labels: problem.input_labels, min: -1, max: 1, step: 0.05 };
 
     // Level 4: Regression - slider inputs
+    case 'linear':
     case 'sine_wave':
     case 'polynomial':
       return { type: 'slider', labels: problem.input_labels, min: 0, max: 1, step: 0.01 };
     case 'surface':
       return { type: 'slider', labels: problem.input_labels, min: 0, max: 1, step: 0.05 };
 
-    // Level 5: Multi-class
+    // Level 5: Failure Cases - inherit from base problem type
+    case 'fail_xor_no_hidden':
+    case 'fail_zero_init':
+    case 'fail_lr_high':
+    case 'fail_lr_low':
+    case 'fail_vanishing':
+      // These are all XOR-based problems with binary inputs
+      return { type: 'binary', labels: problem.input_labels };
+    case 'fail_underfit':
+      // Spiral-based problem with continuous 2D inputs
+      return { type: 'slider', labels: problem.input_labels, min: -1, max: 1, step: 0.05 };
+
+    // Level 6: Multi-class
     case 'colors':
       return { type: 'slider', labels: problem.input_labels, min: 0, max: 1, step: 0.01 };
     case 'quadrants':
+    case 'blobs':
       return { type: 'slider', labels: problem.input_labels, min: -1, max: 1, step: 0.1 };
     case 'patterns':
       return { type: 'pattern', labels: problem.input_labels, min: 0, max: 1, step: 0.1 };
 
-    // Level 6: CNN - grid inputs
+    // Level 7: CNN - grid inputs
     case 'shapes':
     case 'digits':
       return { type: 'grid', labels: problem.output_labels, gridSize: 8, min: 0, max: 1 };

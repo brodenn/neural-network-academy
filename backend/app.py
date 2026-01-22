@@ -28,12 +28,16 @@ from problems import PROBLEMS, get_problem, list_problems
 # -----------------------------------------------------------------------------
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+CORS(app, origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176", "http://localhost:5177", "http://127.0.0.1:5173"])
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # -----------------------------------------------------------------------------
 # Global State
 # -----------------------------------------------------------------------------
+
+# Thread locks for shared state (prevents race conditions)
+state_lock = threading.Lock()  # Protects system_state dictionary
+nn_lock = threading.Lock()      # Protects neural network during training/prediction
 
 # Current problem selection
 current_problem_id = 'xor'
@@ -86,8 +90,9 @@ def make_prediction(inputs: list[float] | list[list[list[float]]]) -> dict:
     """
     global current_inputs
 
-    if not system_state["training_complete"]:
-        return {"error": "Training not complete"}
+    with state_lock:
+        if not system_state["training_complete"]:
+            return {"error": "Training not complete"}
 
     info = current_problem.info
 
@@ -153,7 +158,8 @@ def make_prediction(inputs: list[float] | list[list[list[float]]]) -> dict:
     gpio.set_led(led_on)
 
     # Terminal output (G6 requirement)
-    system_state["prediction_count"] += 1
+    with state_lock:
+        system_state["prediction_count"] += 1
     print(f"\nInput change detected!")
     print(f"Problem: {info.name}")
     if current_network_type == 'cnn':
@@ -204,12 +210,13 @@ gpio.on_button_change(on_button_change)
 
 def training_callback(epoch: int, loss: float, accuracy: float):
     """Callback during training to emit progress."""
-    system_state["current_epoch"] = epoch
-    system_state["current_loss"] = loss
-    system_state["current_accuracy"] = accuracy
+    with state_lock:
+        system_state["current_epoch"] = epoch
+        system_state["current_loss"] = loss
+        system_state["current_accuracy"] = accuracy
 
-    # Emit progress to frontend (throttled)
-    if epoch % 10 == 0:
+    # Emit progress to frontend (throttled, but always emit first few epochs)
+    if epoch < 5 or epoch % 10 == 0:
         socketio.emit('training_progress', {
             "epoch": epoch,
             "loss": loss,
@@ -219,28 +226,35 @@ def training_callback(epoch: int, loss: float, accuracy: float):
 
 def stop_check() -> bool:
     """Check if training stop has been requested."""
-    return system_state["stop_requested"]
+    with state_lock:
+        return system_state["stop_requested"]
 
 
 def get_target_accuracy() -> float:
     """Get current target accuracy (can be changed during training)."""
-    return system_state["target_accuracy"]
+    with state_lock:
+        return system_state["target_accuracy"]
 
 
-def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, target_accuracy: float | None = None):
+def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, target_accuracy: float | None = None, forced_lr: float | None = None):
     """Run training in background thread."""
-    system_state["training_in_progress"] = True
-    system_state["training_complete"] = False
-    system_state["stop_requested"] = False
+    # Initialize training state with lock
+    with state_lock:
+        system_state["training_in_progress"] = True
+        system_state["training_complete"] = False
+        system_state["stop_requested"] = False
 
-    # Set initial target accuracy
-    if target_accuracy is None:
-        # CNN can realistically reach ~95%, dense networks can reach 99%
-        system_state["target_accuracy"] = 0.95 if current_network_type == 'cnn' else 0.99
-    else:
-        system_state["target_accuracy"] = target_accuracy
+        # Set initial target accuracy
+        if target_accuracy is None:
+            # CNN can realistically reach ~95%, dense networks can reach 99%
+            system_state["target_accuracy"] = 0.95 if current_network_type == 'cnn' else 0.99
+        else:
+            system_state["target_accuracy"] = target_accuracy
 
-    socketio.emit('training_started', {"mode": mode, "target_accuracy": system_state["target_accuracy"]})
+        emit_data = {"mode": mode, "target_accuracy": system_state["target_accuracy"]}
+    if forced_lr is not None:
+        emit_data["forced_learning_rate"] = forced_lr
+    socketio.emit('training_started', emit_data)
 
     try:
         if mode == "static":
@@ -254,16 +268,19 @@ def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, targ
             )
         else:  # adaptive
             # Pass the getter function so target can be changed during training
+            # Also pass forced_lr if set (for failure case problems)
             result = nn.train_adaptive(
                 X_train, y_train,
                 target_accuracy=get_target_accuracy,  # Pass function, not value
                 verbose=True,
                 callback=training_callback,
-                stop_check=stop_check
+                stop_check=stop_check,
+                forced_learning_rate=forced_lr
             )
 
         # Mark as complete even if stopped early (allows predictions)
-        system_state["training_complete"] = True
+        with state_lock:
+            system_state["training_complete"] = True
 
         # Check if stopped by user
         if result.get("stopped"):
@@ -283,8 +300,9 @@ def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, targ
 
     finally:
         # Always reset training_in_progress, even on error
-        system_state["training_in_progress"] = False
-        system_state["stop_requested"] = False
+        with state_lock:
+            system_state["training_in_progress"] = False
+            system_state["stop_requested"] = False
 
 
 def print_all_predictions():
@@ -317,22 +335,70 @@ def print_all_predictions():
 
 
 # -----------------------------------------------------------------------------
+# Input Validation Helpers
+# -----------------------------------------------------------------------------
+
+def validate_int(value, name: str, min_val: int = None, max_val: int = None) -> tuple[int | None, str | None]:
+    """Validate an integer value. Returns (value, error_message)."""
+    if value is None:
+        return None, None
+    try:
+        value = int(value)
+        if min_val is not None and value < min_val:
+            return None, f"{name} must be at least {min_val}"
+        if max_val is not None and value > max_val:
+            return None, f"{name} must be at most {max_val}"
+        return value, None
+    except (TypeError, ValueError):
+        return None, f"{name} must be an integer"
+
+
+def validate_float(value, name: str, min_val: float = None, max_val: float = None) -> tuple[float | None, str | None]:
+    """Validate a float value. Returns (value, error_message)."""
+    if value is None:
+        return None, None
+    try:
+        value = float(value)
+        if min_val is not None and value < min_val:
+            return None, f"{name} must be at least {min_val}"
+        if max_val is not None and value > max_val:
+            return None, f"{name} must be at most {max_val}"
+        return value, None
+    except (TypeError, ValueError):
+        return None, f"{name} must be a number"
+
+
+def get_json_body() -> tuple[dict | None, str | None]:
+    """Safely get JSON body from request. Returns (data, error_message)."""
+    try:
+        data = request.get_json(silent=True)
+        if data is None:
+            return {}, None  # Empty body is OK for optional fields
+        if not isinstance(data, dict):
+            return None, "Request body must be a JSON object"
+        return data, None
+    except Exception as e:
+        return None, f"Invalid JSON: {str(e)}"
+
+
+# -----------------------------------------------------------------------------
 # API Routes
 # -----------------------------------------------------------------------------
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Get system status."""
-    return jsonify({
-        "training_complete": system_state["training_complete"],
-        "training_in_progress": system_state["training_in_progress"],
-        "current_epoch": system_state["current_epoch"],
-        "current_loss": system_state["current_loss"],
-        "current_accuracy": system_state["current_accuracy"],
-        "prediction_count": system_state["prediction_count"],
-        "current_problem": current_problem_id,
-        "network_type": current_network_type
-    })
+    with state_lock:
+        return jsonify({
+            "training_complete": system_state["training_complete"],
+            "training_in_progress": system_state["training_in_progress"],
+            "current_epoch": system_state["current_epoch"],
+            "current_loss": system_state["current_loss"],
+            "current_accuracy": system_state["current_accuracy"],
+            "prediction_count": system_state["prediction_count"],
+            "current_problem": current_problem_id,
+            "network_type": current_network_type
+        })
 
 
 # -----------------------------------------------------------------------------
@@ -362,11 +428,23 @@ def get_problem_info(problem_id: str):
             'input_labels': info.input_labels,
             'output_labels': info.output_labels,
             'output_activation': info.output_activation,
-            'embedded_context': info.embedded_context,
             'network_type': info.network_type,
             'input_shape': info.input_shape,
             'sample_count': len(X),
-            'output_size': y.shape[1]
+            'output_size': y.shape[1],
+            # Educational fields
+            'difficulty': info.difficulty,
+            'concept': info.concept,
+            'learning_goal': info.learning_goal,
+            'tips': info.tips,
+            # Level and failure case fields
+            'level': info.level,
+            'is_failure_case': info.is_failure_case,
+            'failure_reason': info.failure_reason,
+            'fix_suggestion': info.fix_suggestion,
+            'locked_architecture': info.locked_architecture,
+            'forced_weight_init': info.forced_weight_init,
+            'forced_learning_rate': info.forced_learning_rate,
         }
 
         # Input size depends on network type
@@ -387,15 +465,20 @@ def select_problem(problem_id: str):
 
     # Force reset training state when switching problems
     # This allows recovery from stuck training states
-    if system_state["training_in_progress"]:
-        print("\nWarning: Forcing training stop due to problem switch")
-        system_state["training_in_progress"] = False
+    with state_lock:
+        if system_state["training_in_progress"]:
+            print("\nWarning: Forcing training stop due to problem switch")
+            system_state["training_in_progress"] = False
+            system_state["stop_requested"] = True
 
     try:
         current_problem = get_problem(problem_id)
         current_problem_id = problem_id
         info = current_problem.info
         current_network_type = info.network_type
+
+        # Determine weight initialization (may be forced for failure cases)
+        weight_init = info.forced_weight_init if info.forced_weight_init else 'xavier'
 
         # Create new network based on problem type
         if info.network_type == 'cnn':
@@ -410,7 +493,8 @@ def select_problem(problem_id: str):
             # Standard dense network
             nn = NeuralNetwork(
                 info.default_architecture,
-                output_activation=info.output_activation
+                output_activation=info.output_activation,
+                weight_init=weight_init
             )
 
         # Generate training data
@@ -425,11 +509,13 @@ def select_problem(problem_id: str):
             current_inputs = [0.0] * len(info.input_labels)
 
         # Reset training state completely
-        system_state["training_complete"] = False
-        system_state["training_in_progress"] = False
-        system_state["current_epoch"] = 0
-        system_state["current_loss"] = 0.0
-        system_state["current_accuracy"] = 0.0
+        with state_lock:
+            system_state["training_complete"] = False
+            system_state["training_in_progress"] = False
+            system_state["stop_requested"] = False
+            system_state["current_epoch"] = 0
+            system_state["current_loss"] = 0.0
+            system_state["current_accuracy"] = 0.0
 
         print(f"\n{'='*60}")
         print(f"Switched to problem: {info.name}")
@@ -456,6 +542,19 @@ def select_problem(problem_id: str):
                 'output_activation': info.output_activation,
                 'network_type': info.network_type,
                 'input_shape': info.input_shape,
+                # Educational fields
+                'difficulty': info.difficulty,
+                'concept': info.concept,
+                'learning_goal': info.learning_goal,
+                'tips': info.tips,
+                # Level and failure case fields
+                'level': info.level,
+                'is_failure_case': info.is_failure_case,
+                'failure_reason': info.failure_reason,
+                'fix_suggestion': info.fix_suggestion,
+                'locked_architecture': info.locked_architecture,
+                'forced_weight_init': info.forced_weight_init,
+                'forced_learning_rate': info.forced_learning_rate,
             }
         })
 
@@ -474,8 +573,18 @@ def set_input():
     """Set input values and get prediction (generic for all problems)."""
     global current_inputs
 
-    data = request.json
-    inputs = data.get('inputs', [])
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
+
+    inputs = data.get('inputs')
+    if inputs is None:
+        return jsonify({"error": "inputs is required"}), 400
+
+    # Validate inputs is a list
+    if not isinstance(inputs, list):
+        return jsonify({"error": "inputs must be an array"}), 400
 
     # Make prediction
     result = make_prediction(inputs)
@@ -514,9 +623,19 @@ def set_architecture():
     """Set new network architecture and/or settings."""
     global nn
 
-    data = request.json
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
+
     info = current_problem.info
     default_arch = info.default_architecture
+
+    # Check if architecture is locked (failure case problems)
+    if info.locked_architecture:
+        return jsonify({
+            "error": f"Architecture is locked for this problem. {info.failure_reason or 'This is an intentional failure case to demonstrate a concept.'}"
+        }), 400
 
     # Get architecture (required or use current)
     layer_sizes = data.get('layer_sizes', nn.layer_sizes if nn else default_arch)
@@ -525,6 +644,13 @@ def set_architecture():
     weight_init = data.get('weight_init', nn.weight_init if nn else 'xavier')
     hidden_activation = data.get('hidden_activation', nn.hidden_activation if nn else 'relu')
     use_biases = data.get('use_biases', nn.use_biases if nn else True)
+
+    # Apply forced settings for failure case problems
+    if info.forced_weight_init:
+        weight_init = info.forced_weight_init
+    if info.forced_learning_rate is not None:
+        # Learning rate is handled in training routes, not here
+        pass
 
     # Validate against current problem
     expected_input = len(info.input_labels)
@@ -553,7 +679,8 @@ def set_architecture():
         hidden_activation=hidden_activation,
         use_biases=use_biases
     )
-    system_state["training_complete"] = False
+    with state_lock:
+        system_state["training_complete"] = False
 
     print(f"\nNetwork configuration changed:")
     print(f"  Architecture: {layer_sizes}")
@@ -570,12 +697,31 @@ def set_architecture():
 @app.route('/api/train', methods=['POST'])
 def start_training():
     """Start static training (G4)."""
-    if system_state["training_in_progress"]:
-        return jsonify({"error": "Training already in progress"}), 400
+    with state_lock:
+        if system_state["training_in_progress"]:
+            return jsonify({"error": "Training already in progress"}), 400
 
-    data = request.json or {}
-    epochs = data.get('epochs', 1000)
-    learning_rate = data.get('learning_rate', 0.1)
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Validate epochs
+    epochs, err = validate_int(data.get('epochs', 1000), 'epochs', min_val=1, max_val=100000)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Validate learning rate
+    learning_rate, err = validate_float(data.get('learning_rate', 0.1), 'learning_rate', min_val=0.0001, max_val=10.0)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Apply forced learning rate for failure case problems
+    info = current_problem.info
+    forced_lr = None
+    if info.forced_learning_rate is not None:
+        forced_lr = info.forced_learning_rate
+        learning_rate = forced_lr
 
     # Run in background thread
     thread = threading.Thread(
@@ -584,51 +730,69 @@ def start_training():
     )
     thread.start()
 
-    return jsonify({
+    response = {
         "success": True,
         "mode": "static",
         "epochs": epochs,
         "learning_rate": learning_rate
-    })
+    }
+    if forced_lr is not None:
+        response["forced_learning_rate"] = True
+        response["reason"] = info.failure_reason
+
+    return jsonify(response)
 
 
 @app.route('/api/train/adaptive', methods=['POST'])
 def start_adaptive_training():
     """Start adaptive training (VG9)."""
-    if system_state["training_in_progress"]:
-        return jsonify({"error": "Training already in progress"}), 400
+    with state_lock:
+        if system_state["training_in_progress"]:
+            return jsonify({"error": "Training already in progress"}), 400
 
-    data = request.json or {}
-    target_accuracy = data.get('target_accuracy', None)
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
 
     # Validate target_accuracy if provided
-    if target_accuracy is not None:
-        target_accuracy = float(target_accuracy)
-        if not 0.5 <= target_accuracy <= 1.0:
-            return jsonify({"error": "target_accuracy must be between 0.5 and 1.0"}), 400
+    target_accuracy, err = validate_float(data.get('target_accuracy'), 'target_accuracy', min_val=0.5, max_val=1.0)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Check for forced learning rate (failure case problems)
+    info = current_problem.info
+    forced_lr = None
+    if info.forced_learning_rate is not None:
+        forced_lr = info.forced_learning_rate
 
     # Run in background thread
     thread = threading.Thread(
         target=run_training,
         args=("adaptive",),
-        kwargs={"target_accuracy": target_accuracy}
+        kwargs={"target_accuracy": target_accuracy, "forced_lr": forced_lr}
     )
     thread.start()
 
-    return jsonify({
+    response = {
         "success": True,
         "mode": "adaptive",
         "target_accuracy": target_accuracy
-    })
+    }
+    if forced_lr is not None:
+        response["forced_learning_rate"] = forced_lr
+        response["reason"] = info.failure_reason
+
+    return jsonify(response)
 
 
 @app.route('/api/train/stop', methods=['POST'])
 def stop_training():
     """Stop training early (user satisfied with current accuracy)."""
-    if not system_state["training_in_progress"]:
-        return jsonify({"error": "No training in progress"}), 400
-
-    system_state["stop_requested"] = True
+    with state_lock:
+        if not system_state["training_in_progress"]:
+            return jsonify({"error": "No training in progress"}), 400
+        system_state["stop_requested"] = True
     print("\nStop training requested by user...")
 
     return jsonify({
@@ -640,21 +804,27 @@ def stop_training():
 @app.route('/api/train/target', methods=['POST'])
 def update_target_accuracy():
     """Update target accuracy during training."""
-    if not system_state["training_in_progress"]:
-        return jsonify({"error": "No training in progress"}), 400
+    with state_lock:
+        if not system_state["training_in_progress"]:
+            return jsonify({"error": "No training in progress"}), 400
 
-    data = request.json or {}
-    new_target = data.get('target_accuracy')
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
 
-    if new_target is None:
+    # Validate target_accuracy (required)
+    raw_target = data.get('target_accuracy')
+    if raw_target is None:
         return jsonify({"error": "target_accuracy is required"}), 400
 
-    new_target = float(new_target)
-    if not 0.5 <= new_target <= 1.0:
-        return jsonify({"error": "target_accuracy must be between 0.5 and 1.0"}), 400
+    new_target, err = validate_float(raw_target, 'target_accuracy', min_val=0.5, max_val=1.0)
+    if err:
+        return jsonify({"error": err}), 400
 
-    old_target = system_state["target_accuracy"]
-    system_state["target_accuracy"] = new_target
+    with state_lock:
+        old_target = system_state["target_accuracy"]
+        system_state["target_accuracy"] = new_target
 
     print(f"\nTarget accuracy changed: {old_target*100:.0f}% -> {new_target*100:.0f}%")
 
@@ -674,12 +844,29 @@ def update_target_accuracy():
 @app.route('/api/train/step', methods=['POST'])
 def train_step():
     """Run a single training epoch (for step-by-step learning)."""
-    if system_state["training_in_progress"]:
-        return jsonify({"error": "Training already in progress"}), 400
+    with state_lock:
+        if system_state["training_in_progress"]:
+            return jsonify({"error": "Training already in progress"}), 400
 
-    data = request.json or {}
-    learning_rate = data.get('learning_rate', 0.1)
-    batch_size = data.get('batch_size', None)  # None = full batch
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Validate learning rate
+    learning_rate, err = validate_float(data.get('learning_rate', 0.1), 'learning_rate', min_val=0.0001, max_val=10.0)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Validate batch_size if provided
+    batch_size, err = validate_int(data.get('batch_size'), 'batch_size', min_val=1)
+    if err:
+        return jsonify({"error": err}), 400
+
+    # Apply forced learning rate for failure case problems
+    info = current_problem.info
+    if info.forced_learning_rate is not None:
+        learning_rate = info.forced_learning_rate
 
     # Run single epoch synchronously (fast enough)
     nn.learning_rate = learning_rate
@@ -711,10 +898,11 @@ def train_step():
     nn.backward(X_batch, y_batch, activations, z_values)
 
     # Update state
-    system_state["current_epoch"] = len(nn.loss_history)
-    system_state["current_loss"] = loss
-    system_state["current_accuracy"] = accuracy
-    system_state["training_complete"] = True  # Allow predictions after any training
+    with state_lock:
+        system_state["current_epoch"] = len(nn.loss_history)
+        system_state["current_loss"] = loss
+        system_state["current_accuracy"] = accuracy
+        system_state["training_complete"] = True  # Allow predictions after any training
 
     # Emit progress
     socketio.emit('training_progress', {
@@ -841,11 +1029,12 @@ void nn_predict(const float* input, float* output) {{
 def reset_network():
     """Reset network weights and training state."""
     nn.reset()
-    system_state["training_complete"] = False
-    system_state["training_in_progress"] = False  # Force reset stuck training
-    system_state["current_epoch"] = 0
-    system_state["current_loss"] = 0.0
-    system_state["current_accuracy"] = 0.0
+    with state_lock:
+        system_state["training_complete"] = False
+        system_state["training_in_progress"] = False  # Force reset stuck training
+        system_state["current_epoch"] = 0
+        system_state["current_loss"] = 0.0
+        system_state["current_accuracy"] = 0.0
 
     print("\nNetwork weights reset")
 
@@ -959,8 +1148,9 @@ def get_decision_boundary():
     Get decision boundary visualization data for 2D problems.
     Returns a grid of predictions for visualizing how the network classifies 2D space.
     """
-    if not system_state["training_complete"]:
-        return jsonify({"error": "Training not complete"}), 400
+    with state_lock:
+        if not system_state["training_complete"]:
+            return jsonify({"error": "Training not complete"}), 400
 
     info = current_problem.info
 
@@ -1029,13 +1219,14 @@ def handle_connect():
     """Handle client connection."""
     print(f"Client connected")
     info = current_problem.info
-    emit('status', {
-        "connected": True,
-        "training_complete": system_state["training_complete"],
-        "training_in_progress": system_state["training_in_progress"],
-        "current_problem": current_problem_id,
-        "network_type": current_network_type
-    })
+    with state_lock:
+        emit('status', {
+            "connected": True,
+            "training_complete": system_state["training_complete"],
+            "training_in_progress": system_state["training_in_progress"],
+            "current_problem": current_problem_id,
+            "network_type": current_network_type
+        })
     emit('problem_info', {
         'id': info.id,
         'name': info.name,
@@ -1047,6 +1238,19 @@ def handle_connect():
         'output_activation': info.output_activation,
         'network_type': info.network_type,
         'input_shape': info.input_shape,
+        # Educational fields
+        'difficulty': info.difficulty,
+        'concept': info.concept,
+        'learning_goal': info.learning_goal,
+        'tips': info.tips,
+        # Level and failure case fields
+        'level': info.level,
+        'is_failure_case': info.is_failure_case,
+        'failure_reason': info.failure_reason,
+        'fix_suggestion': info.fix_suggestion,
+        'locked_architecture': info.locked_architecture,
+        'forced_weight_init': info.forced_weight_init,
+        'forced_learning_rate': info.forced_learning_rate,
     })
     emit('gpio_state', gpio.get_state())
 

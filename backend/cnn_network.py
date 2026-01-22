@@ -302,7 +302,8 @@ class CNNNetwork:
         max_epochs: int = 5000,
         verbose: bool = True,
         callback: Callable[[int, float, float], None] | None = None,
-        stop_check: Callable[[], bool] | None = None
+        stop_check: Callable[[], bool] | None = None,
+        forced_learning_rate: float | None = None
     ) -> dict:
         """
         Adaptive training with automatic learning rate adjustment.
@@ -315,6 +316,7 @@ class CNNNetwork:
             verbose: Print progress
             callback: Optional callback
             stop_check: Optional callback that returns True to stop training early
+            forced_learning_rate: If set, use this fixed learning rate (for failure cases)
 
         Returns:
             Dictionary with training results
@@ -329,9 +331,15 @@ class CNNNetwork:
                 return target_accuracy()
             return target_accuracy
 
-        lr = 0.5  # Start with higher LR
-        min_lr = 0.01
-        lr_decay = 0.8
+        # Use forced learning rate if provided (for failure case problems)
+        if forced_learning_rate is not None:
+            lr = forced_learning_rate
+            min_lr = forced_learning_rate  # Don't decay below forced rate
+            lr_decay = 1.0  # No decay when forced
+        else:
+            lr = 0.5  # Start with higher LR
+            min_lr = 0.01
+            lr_decay = 0.8
         patience = 200
         best_loss = float('inf')
         epochs_without_improvement = 0

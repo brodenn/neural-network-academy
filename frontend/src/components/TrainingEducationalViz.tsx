@@ -15,46 +15,12 @@ function seededRandom(seed: number): number {
   return x - Math.floor(x);
 }
 
-// Tab button
-function TabButton({
-  step,
-  currentStep,
-  onClick,
-  color,
-  children
-}: {
-  step: TrainingStep;
-  currentStep: TrainingStep;
-  onClick: () => void;
-  color: string;
-  children: React.ReactNode;
-}) {
-  const isActive = step === currentStep;
-  const colorClasses: Record<string, string> = {
-    purple: isActive ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    cyan: isActive ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    red: isActive ? 'bg-red-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    pink: isActive ? 'bg-pink-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    green: isActive ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    yellow: isActive ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${colorClasses[color]}`}
-    >
-      {children}
-    </button>
-  );
-}
-
 export function TrainingEducationalViz({
   layerSizes,
   onClose,
 }: TrainingEducationalVizProps) {
   const [step, setStep] = useState<TrainingStep>('overview');
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
   const [speed, setSpeed] = useState(800);
   const [animationPhase, setAnimationPhase] = useState(0);
   const [epoch, setEpoch] = useState(1);
@@ -219,28 +185,6 @@ export function TrainingEducationalViz({
               </div>
             );
           })}
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-2 mb-4 flex-wrap">
-          <TabButton step="overview" currentStep={step} onClick={() => handleStepChange('overview')} color="purple">
-            📋 Overview
-          </TabButton>
-          <TabButton step="forward" currentStep={step} onClick={() => handleStepChange('forward')} color="cyan">
-            ➡️ Forward Pass
-          </TabButton>
-          <TabButton step="loss" currentStep={step} onClick={() => handleStepChange('loss')} color="red">
-            📉 Loss
-          </TabButton>
-          <TabButton step="backward" currentStep={step} onClick={() => handleStepChange('backward')} color="pink">
-            ⬅️ Backprop
-          </TabButton>
-          <TabButton step="update" currentStep={step} onClick={() => handleStepChange('update')} color="green">
-            🔧 Update
-          </TabButton>
-          <TabButton step="loop" currentStep={step} onClick={() => handleStepChange('loop')} color="yellow">
-            🔄 Full Loop
-          </TabButton>
         </div>
 
         <AnimatePresence mode="wait">

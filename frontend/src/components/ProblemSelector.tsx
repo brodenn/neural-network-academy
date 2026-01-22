@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { ProblemInfo } from '../types';
 
@@ -9,22 +9,26 @@ interface ProblemSelectorProps {
   disabled?: boolean;
 }
 
-// Group problems by difficulty level
+// Level names for the curriculum
+const LEVEL_NAMES: Record<number, string> = {
+  1: 'Level 1: Single Neuron',
+  2: 'Level 2: Hidden Layers',
+  3: 'Level 3: Decision Boundaries',
+  4: 'Level 4: Regression',
+  5: 'Level 5: Failure Cases',
+  6: 'Level 6: Multi-Class',
+  7: 'Level 7: CNN (Images)',
+};
+
+// Group problems by level number
 function groupProblemsByLevel(problems: ProblemInfo[]): Map<string, ProblemInfo[]> {
   const levels = new Map<string, ProblemInfo[]>();
-  const levelNames: Record<number, string> = {
-    1: 'Level 1: Single Neuron',
-    2: 'Level 2: Hidden Layers',
-    3: 'Level 3: Decision Boundaries',
-    4: 'Level 4: Advanced',
-    5: 'Level 5: Expert',
-  };
 
-  problems.forEach((p) => {
-    // CNN problems get their own category
-    const levelKey = p.network_type === 'cnn'
-      ? 'Level 6: CNN (Images)'
-      : levelNames[p.difficulty] || `Level ${p.difficulty}`;
+  // Sort problems by level
+  const sortedProblems = [...problems].sort((a, b) => a.level - b.level);
+
+  sortedProblems.forEach((p) => {
+    const levelKey = LEVEL_NAMES[p.level] || `Level ${p.level}`;
 
     if (!levels.has(levelKey)) {
       levels.set(levelKey, []);
@@ -41,8 +45,33 @@ export function ProblemSelector({
   onSelect,
   disabled = false,
 }: ProblemSelectorProps) {
-  const [showTips, setShowTips] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [expandedLevel, setExpandedLevel] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Close menu on escape key
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, []);
 
   const getCategoryColor = (category: string) => {
     switch (category) {
@@ -57,214 +86,174 @@ export function ProblemSelector({
     }
   };
 
-  const getDifficultyColor = (difficulty: number) => {
-    switch (difficulty) {
-      case 1: return 'text-green-400';
-      case 2: return 'text-lime-400';
-      case 3: return 'text-yellow-400';
-      case 4: return 'text-orange-400';
-      case 5: return 'text-red-400';
-      default: return 'text-gray-400';
-    }
+  const getDifficultyStars = (difficulty: number) => {
+    return '★'.repeat(difficulty);
   };
 
   const groupedProblems = groupProblemsByLevel(problems);
 
+  const handleSelect = (problemId: string) => {
+    if (!disabled) {
+      onSelect(problemId);
+      setIsOpen(false);
+    }
+  };
+
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-        <span>📚</span> Learning Problems
-      </h2>
+    <div className="relative" ref={menuRef}>
+      {/* Dropdown Button */}
+      <button
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${
+          disabled
+            ? 'bg-gray-700 border-gray-600 text-gray-400 cursor-not-allowed'
+            : isOpen
+            ? 'bg-gray-700 border-cyan-500 text-white'
+            : 'bg-gray-800 border-gray-600 text-gray-200 hover:border-gray-500'
+        }`}
+      >
+        <span className="text-sm font-medium">
+          {currentProblem?.name || 'Select Problem'}
+        </span>
+        {currentProblem?.is_failure_case && (
+          <span className="text-red-400 text-xs">!</span>
+        )}
+        <svg
+          className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-      {/* Grouped problem selection */}
-      <div className="space-y-2 mb-4">
-        {Array.from(groupedProblems.entries()).map(([level, levelProblems]) => (
-          <div key={level} className="bg-gray-700/50 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setExpandedLevel(expandedLevel === level ? null : level)}
-              className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-gray-700/80 transition-colors"
-            >
-              <span className="text-sm font-medium text-gray-300">{level}</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">{levelProblems.length} problems</span>
-                <span className="text-gray-500 text-xs">
-                  {expandedLevel === level ? '▼' : '▶'}
-                </span>
+      {/* Dropdown Menu */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="absolute top-full left-0 mt-1 w-80 max-h-[70vh] overflow-y-auto bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50"
+          >
+            {/* Current problem info */}
+            {currentProblem && (
+              <div className="p-3 border-b border-gray-700">
+                <div className="flex items-center justify-between mb-1">
+                  <span className={`text-xs px-1.5 py-0.5 rounded border ${
+                    currentProblem.is_failure_case
+                      ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                      : getCategoryColor(currentProblem.category)
+                  }`}>
+                    {currentProblem.is_failure_case ? 'failure-case' : currentProblem.category}
+                  </span>
+                  <span className="text-yellow-400 text-xs">
+                    {getDifficultyStars(currentProblem.difficulty)}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 line-clamp-2">{currentProblem.description}</p>
+                {currentProblem.concept && (
+                  <div className="mt-1">
+                    <span className="text-xs text-cyan-400">Teaches: {currentProblem.concept}</span>
+                  </div>
+                )}
               </div>
-            </button>
+            )}
 
-            <AnimatePresence>
-              {expandedLevel === level && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="border-t border-gray-600"
-                >
-                  {levelProblems.map((p) => (
+            {/* Level groups */}
+            <div className="py-1">
+              {Array.from(groupedProblems.entries()).map(([level, levelProblems]) => {
+                const isFailureLevel = level.includes('Failure Cases');
+                const isExpanded = expandedLevel === level;
+
+                return (
+                  <div key={level}>
+                    {/* Level header */}
                     <button
-                      key={p.id}
-                      onClick={() => !disabled && onSelect(p.id)}
-                      disabled={disabled}
-                      className={`w-full px-3 py-2 text-left transition-colors flex items-center justify-between ${
-                        currentProblem?.id === p.id
-                          ? 'bg-blue-600/30 border-l-2 border-blue-500'
-                          : 'hover:bg-gray-600/50 border-l-2 border-transparent'
-                      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      onClick={() => setExpandedLevel(isExpanded ? null : level)}
+                      className={`w-full px-3 py-2 flex items-center justify-between text-left transition-colors ${
+                        isFailureLevel
+                          ? 'hover:bg-red-900/30'
+                          : 'hover:bg-gray-700/50'
+                      }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-white">{p.name}</span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded border ${getCategoryColor(p.category)}`}>
-                          {p.category}
+                        {isFailureLevel && <span className="text-red-400">!</span>}
+                        <span className={`text-sm font-medium ${
+                          isFailureLevel ? 'text-red-300' : 'text-gray-300'
+                        }`}>
+                          {level}
                         </span>
                       </div>
-                      <span className={`text-xs ${getDifficultyColor(p.difficulty)}`}>
-                        {'★'.repeat(p.difficulty)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">{levelProblems.length}</span>
+                        <span className="text-xs text-gray-500">
+                          {isExpanded ? '▼' : '▶'}
+                        </span>
+                      </div>
                     </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        ))}
-      </div>
 
-      {/* Quick dropdown for mobile/compact view */}
-      <div className="mb-4 sm:hidden">
-        <select
-          value={currentProblem?.id || ''}
-          onChange={(e) => onSelect(e.target.value)}
-          disabled={disabled}
-          className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-        >
-          {problems.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} {'★'.repeat(p.difficulty)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Current problem details */}
-      {currentProblem && (
-        <div className="space-y-3 border-t border-gray-700 pt-3">
-          {/* Header with difficulty */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span
-                className={`px-2 py-0.5 rounded text-xs font-medium border ${getCategoryColor(
-                  currentProblem.category
-                )}`}
-              >
-                {currentProblem.category}
-              </span>
-              <span className="text-xs text-gray-500">
-                {currentProblem.output_activation}
-              </span>
+                    {/* Problems in this level */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                          className="overflow-hidden"
+                        >
+                          {levelProblems.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => handleSelect(p.id)}
+                              disabled={disabled}
+                              className={`w-full px-4 py-2 text-left transition-colors flex items-center justify-between ${
+                                currentProblem?.id === p.id
+                                  ? p.is_failure_case
+                                    ? 'bg-red-600/30 border-l-2 border-red-500'
+                                    : 'bg-cyan-600/30 border-l-2 border-cyan-500'
+                                  : p.is_failure_case
+                                  ? 'hover:bg-red-900/20 border-l-2 border-transparent'
+                                  : 'hover:bg-gray-700/50 border-l-2 border-transparent'
+                              } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-sm ${p.is_failure_case ? 'text-red-200' : 'text-white'}`}>
+                                  {p.name}
+                                </span>
+                                <span className={`text-xs px-1 py-0.5 rounded border ${
+                                  p.is_failure_case
+                                    ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                                    : getCategoryColor(p.category)
+                                }`}>
+                                  {p.is_failure_case ? 'fail' : p.category.slice(0, 3)}
+                                </span>
+                              </div>
+                              <span className="text-yellow-400 text-xs">
+                                {getDifficultyStars(p.difficulty)}
+                              </span>
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
-            <div className={`text-sm ${getDifficultyColor(currentProblem.difficulty)}`}>
-              {'★'.repeat(currentProblem.difficulty)}
-              <span className="text-gray-500 ml-1">
-                ({['Beginner', 'Easy', 'Medium', 'Hard', 'Expert'][currentProblem.difficulty - 1]})
-              </span>
-            </div>
-          </div>
 
-          {/* Concept badge */}
-          {currentProblem.concept && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Teaches:</span>
-              <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 rounded text-xs font-medium">
-                {currentProblem.concept}
-              </span>
-            </div>
-          )}
-
-          {/* Description */}
-          <p className="text-sm text-gray-400">{currentProblem.description}</p>
-
-          {/* Learning goal */}
-          {currentProblem.learning_goal && (
-            <div className="bg-gray-700/50 rounded-lg p-3 border-l-2 border-yellow-500/50">
-              <div className="flex items-center gap-2 mb-1">
-                <span>🎯</span>
-                <span className="text-xs font-medium text-yellow-400">Learning Goal</span>
+            {disabled && (
+              <div className="px-3 py-2 text-xs text-yellow-500 border-t border-gray-700">
+                Cannot change during training
               </div>
-              <p className="text-xs text-gray-300">{currentProblem.learning_goal}</p>
-            </div>
-          )}
-
-          {/* Tips toggle */}
-          {currentProblem.tips && currentProblem.tips.length > 0 && (
-            <div>
-              <button
-                onClick={() => setShowTips(!showTips)}
-                className="flex items-center gap-2 text-xs text-gray-400 hover:text-white transition-colors"
-              >
-                <span>{showTips ? '▼' : '▶'}</span>
-                <span>💡 Tips ({currentProblem.tips.length})</span>
-              </button>
-
-              <AnimatePresence>
-                {showTips && (
-                  <motion.ul
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="mt-2 space-y-1 pl-4 overflow-hidden"
-                  >
-                    {currentProblem.tips.map((tip, i) => (
-                      <motion.li
-                        key={i}
-                        initial={{ x: -10, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: i * 0.1 }}
-                        className="text-xs text-gray-400 flex items-start gap-2"
-                      >
-                        <span className="text-green-400">•</span>
-                        <span>{tip}</span>
-                      </motion.li>
-                    ))}
-                  </motion.ul>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {/* Architecture details (collapsible) */}
-          <details className="text-xs text-gray-500">
-            <summary className="cursor-pointer hover:text-gray-400">
-              Technical Details
-            </summary>
-            <div className="mt-2 space-y-1 pl-4">
-              <div>
-                <span className="text-gray-400">Architecture:</span>{' '}
-                <code className="bg-gray-700 px-1 rounded">
-                  {currentProblem.default_architecture.join(' → ')}
-                </code>
-              </div>
-              <div>
-                <span className="text-gray-400">Inputs:</span>{' '}
-                {currentProblem.input_labels.length <= 3
-                  ? currentProblem.input_labels.join(', ')
-                  : `${currentProblem.input_labels.length} inputs`}
-              </div>
-              <div>
-                <span className="text-gray-400">Outputs:</span>{' '}
-                {currentProblem.output_labels.join(', ')}
-              </div>
-            </div>
-          </details>
-        </div>
-      )}
-
-      {disabled && (
-        <p className="text-xs text-yellow-500 mt-3">
-          Cannot change problem during training
-        </p>
-      )}
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

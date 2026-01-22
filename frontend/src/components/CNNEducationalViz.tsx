@@ -231,7 +231,6 @@ export function CNNEducationalViz({ inputGrid, onClose }: CNNEducationalVizProps
   };
 
   const convResult = calculateConvOutput();
-  const reluResult = Math.max(0, convResult);
   const kernel = EXAMPLE_KERNELS[selectedKernel];
 
   // Auto-play animation

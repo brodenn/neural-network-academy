@@ -2,7 +2,7 @@ import { useState, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NetworkSettings } from './NetworkSettings';
 import { TrainingEducationalViz } from './TrainingEducationalViz';
-import type { WeightInit, HiddenActivation } from '../types';
+import type { WeightInit, HiddenActivation, ProblemInfo } from '../types';
 
 interface TrainingPanelProps {
   currentEpoch: number;
@@ -27,6 +27,8 @@ interface TrainingPanelProps {
   currentHiddenActivation: HiddenActivation;
   currentUseBiases: boolean;
   isCNN?: boolean;
+  // Failure case support
+  currentProblem?: ProblemInfo | null;
 }
 
 export const TrainingPanel = memo(function TrainingPanel({
@@ -47,7 +49,13 @@ export const TrainingPanel = memo(function TrainingPanel({
   currentHiddenActivation,
   currentUseBiases,
   isCNN = false,
+  currentProblem,
 }: TrainingPanelProps) {
+  // Failure case detection
+  const isFailureCase = currentProblem?.is_failure_case ?? false;
+  const isArchitectureLocked = currentProblem?.locked_architecture ?? false;
+  const forcedLR = currentProblem?.forced_learning_rate;
+  const forcedInit = currentProblem?.forced_weight_init;
   const [epochs, setEpochs] = useState(1000);
   const [learningRate, setLearningRate] = useState(0.5);
   const [layerInput, setLayerInput] = useState('');
@@ -116,7 +124,7 @@ export const TrainingPanel = memo(function TrainingPanel({
   const canCustomize = !!onSettingsChange;
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
+    <div className="bg-gray-800 rounded-lg p-3" data-testid="training-panel" role="region" aria-label="Training Controls">
       {/* Educational visualization modal */}
       <AnimatePresence>
         {showEducational && (
@@ -140,6 +148,47 @@ export const TrainingPanel = memo(function TrainingPanel({
           </motion.button>
         )}
       </div>
+
+      {/* Failure Case Warning Banner */}
+      {isFailureCase && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-900/40 border border-red-500/50 rounded-lg p-3 mb-4"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xl">⚠️</span>
+            <span className="text-red-300 font-semibold text-sm">Intentional Failure Case</span>
+          </div>
+          <p className="text-red-200 text-xs mb-2">
+            This problem is designed to fail. Watch what happens when you train!
+          </p>
+          {currentProblem?.failure_reason && (
+            <div className="text-xs mb-2">
+              <span className="text-red-400 font-medium">Why it fails: </span>
+              <span className="text-red-200">{currentProblem.failure_reason}</span>
+            </div>
+          )}
+          {isArchitectureLocked && (
+            <div className="text-xs text-yellow-400 flex items-center gap-1">
+              <span>🔒</span>
+              <span>Architecture is locked to demonstrate the failure</span>
+            </div>
+          )}
+          {forcedLR != null && (
+            <div className="text-xs text-yellow-400 flex items-center gap-1 mt-1">
+              <span>⚡</span>
+              <span>Learning rate is forced to {forcedLR}</span>
+            </div>
+          )}
+          {forcedInit && (
+            <div className="text-xs text-yellow-400 flex items-center gap-1 mt-1">
+              <span>🎲</span>
+              <span>Weight initialization is forced to {forcedInit}</span>
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* Prominent Learn Banner */}
       <AnimatePresence>
@@ -202,15 +251,33 @@ export const TrainingPanel = memo(function TrainingPanel({
         const isUntrained = currentEpoch === 0 && currentAccuracy === 0;
         const isTrained = trainingComplete && !trainingInProgress && currentAccuracy >= 0.9;
 
+        // Detect if training is "stuck" (failure case behavior)
+        const isStuck = currentEpoch > 500 && currentAccuracy < 0.6;
+        const isVeryStuck = currentEpoch > 2000 && currentAccuracy < 0.55;
+
         // Border styles based on state
         let borderClass = 'border-2 border-gray-600'; // Untrained (gray)
         let statusText = '';
         let statusColor = '';
 
         if (trainingInProgress) {
-          borderClass = 'border-2 border-yellow-500 animate-pulse';
-          statusText = '● Training...';
-          statusColor = 'text-yellow-400';
+          if (isFailureCase && isVeryStuck) {
+            borderClass = 'border-2 border-red-500 animate-pulse';
+            statusText = '✗ Failing as expected...';
+            statusColor = 'text-red-400';
+          } else if (isFailureCase && isStuck) {
+            borderClass = 'border-2 border-orange-500 animate-pulse';
+            statusText = '⚠ Struggling...';
+            statusColor = 'text-orange-400';
+          } else {
+            borderClass = 'border-2 border-yellow-500 animate-pulse';
+            statusText = '● Training...';
+            statusColor = 'text-yellow-400';
+          }
+        } else if (isFailureCase && currentAccuracy < 0.6 && currentEpoch > 100) {
+          borderClass = 'border-2 border-red-500';
+          statusText = '✗ Failed (as expected!)';
+          statusColor = 'text-red-400';
         } else if (isTrained) {
           borderClass = 'border-2 border-green-500';
           statusText = '✓ Trained';
@@ -233,18 +300,18 @@ export const TrainingPanel = memo(function TrainingPanel({
               {statusText}
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className={`bg-gray-700 rounded p-3 text-center ${borderClass} transition-all duration-300`}>
+            <div className="grid grid-cols-3 gap-3 mb-4" role="group" aria-label="Training metrics">
+              <div className={`bg-gray-700 rounded p-3 text-center ${borderClass} transition-all duration-300`} data-testid="metric-epoch">
                 <div className="text-gray-400 text-sm">Epoch</div>
-                <div className="text-xl font-mono">{currentEpoch}</div>
+                <div className="text-xl font-mono" aria-label={`Current epoch: ${currentEpoch}`}>{currentEpoch}</div>
               </div>
-              <div className={`bg-gray-700 rounded p-3 text-center ${borderClass} transition-all duration-300`}>
+              <div className={`bg-gray-700 rounded p-3 text-center ${borderClass} transition-all duration-300`} data-testid="metric-loss">
                 <div className="text-gray-400 text-sm">Loss</div>
-                <div className="text-xl font-mono">{currentLoss.toFixed(4)}</div>
+                <div className="text-xl font-mono" aria-label={`Loss: ${currentLoss.toFixed(4)}`}>{currentLoss.toFixed(4)}</div>
               </div>
-              <div className={`bg-gray-700 rounded p-3 text-center ${borderClass} transition-all duration-300`}>
+              <div className={`bg-gray-700 rounded p-3 text-center ${borderClass} transition-all duration-300`} data-testid="metric-accuracy">
                 <div className="text-gray-400 text-sm">Accuracy</div>
-                <div className={`text-xl font-mono ${currentAccuracy >= 0.95 ? 'text-green-400' : ''}`}>
+                <div className={`text-xl font-mono ${currentAccuracy >= 0.95 ? 'text-green-400' : ''}`} aria-label={`Accuracy: ${(currentAccuracy * 100).toFixed(1)} percent`}>
                   {(currentAccuracy * 100).toFixed(1)}%
                 </div>
               </div>
@@ -257,23 +324,33 @@ export const TrainingPanel = memo(function TrainingPanel({
       {canCustomize && (
         <>
           <div className="mb-4">
-            <label className="block text-gray-400 text-sm mb-2">
+            <label htmlFor="hidden-layers-input" className="block text-gray-400 text-sm mb-2">
               Hidden Layers (comma-separated)
+              {isArchitectureLocked && (
+                <span className="ml-2 text-yellow-400 text-xs">🔒 Locked</span>
+              )}
             </label>
             <div className="flex gap-2">
-              <div className="bg-gray-700 px-3 py-2 rounded text-gray-400">{inputSize} →</div>
+              <div className="bg-gray-700 px-3 py-2 rounded text-gray-400" aria-hidden="true">{inputSize} →</div>
               <input
+                id="hidden-layers-input"
                 type="text"
                 value={layerInput}
                 onChange={(e) => setLayerInput(e.target.value)}
                 placeholder="12, 8, 4"
-                className="flex-1 bg-gray-700 rounded px-3 py-2 text-white"
-                disabled={trainingInProgress}
+                className={`flex-1 bg-gray-700 rounded px-3 py-2 text-white ${
+                  isArchitectureLocked ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                disabled={trainingInProgress || isArchitectureLocked}
+                data-testid="hidden-layers-input"
               />
-              <div className="bg-gray-700 px-3 py-2 rounded text-gray-400">→ {outputSize}</div>
+              <div className="bg-gray-700 px-3 py-2 rounded text-gray-400" aria-hidden="true">→ {outputSize}</div>
             </div>
             <div className="text-gray-500 text-sm mt-1">
               Current: [{currentArchitecture.join(' → ')}]
+              {isArchitectureLocked && (
+                <span className="text-yellow-500 ml-2">(cannot change - demonstrating failure)</span>
+              )}
             </div>
           </div>
 
@@ -281,9 +358,11 @@ export const TrainingPanel = memo(function TrainingPanel({
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="w-full mb-4 py-2 text-sm text-gray-400 hover:text-white border border-gray-600 rounded flex items-center justify-center gap-2"
+            disabled={isArchitectureLocked}
           >
             <span>{showSettings ? '▼' : '▶'}</span>
             <span>Network Settings (learn what each does!)</span>
+            {isArchitectureLocked && <span className="text-yellow-400">🔒</span>}
           </button>
 
           {/* Collapsible settings */}
@@ -296,18 +375,27 @@ export const TrainingPanel = memo(function TrainingPanel({
                 onWeightInitChange={setWeightInit}
                 onHiddenActivationChange={setHiddenActivation}
                 onUseBiasesChange={setUseBiases}
-                disabled={trainingInProgress}
+                disabled={trainingInProgress || isArchitectureLocked}
               />
+              {forcedInit && (
+                <div className="mt-2 text-xs text-yellow-400">
+                  ⚠ Weight init is forced to "{forcedInit}" for this problem
+                </div>
+              )}
             </div>
           )}
 
           {/* Apply button for architecture + settings */}
           <button
             onClick={handleApplySettings}
-            disabled={trainingInProgress}
-            className="w-full mb-4 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 py-2 rounded font-semibold"
+            disabled={trainingInProgress || isArchitectureLocked}
+            className={`w-full mb-4 py-2 rounded font-semibold ${
+              isArchitectureLocked
+                ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                : 'bg-purple-600 hover:bg-purple-700 disabled:opacity-50'
+            }`}
           >
-            Apply Architecture & Settings
+            {isArchitectureLocked ? '🔒 Architecture Locked' : 'Apply Architecture & Settings'}
           </button>
         </>
       )}
@@ -320,37 +408,60 @@ export const TrainingPanel = memo(function TrainingPanel({
       )}
 
       {/* Static Training Section */}
-      <div className="mb-4 p-3 bg-blue-900/20 border border-blue-600/30 rounded">
-        <div className="text-blue-400 text-xs font-semibold mb-2 uppercase tracking-wide">Static Training</div>
+      <div className={`mb-4 p-3 rounded ${
+        isFailureCase && forcedLR != null
+          ? 'bg-red-900/20 border border-red-600/30'
+          : 'bg-blue-900/20 border border-blue-600/30'
+      }`}>
+        <div className={`text-xs font-semibold mb-2 uppercase tracking-wide ${
+          isFailureCase && forcedLR != null ? 'text-red-400' : 'text-blue-400'
+        }`}>Static Training</div>
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
-            <label className="block text-gray-400 text-xs mb-1">Epochs</label>
+            <label htmlFor="epochs-input" className="block text-gray-400 text-xs mb-1">Epochs</label>
             <input
+              id="epochs-input"
               type="number"
               value={epochs}
               onChange={(e) => setEpochs(parseInt(e.target.value, 10) || 1000)}
               className="w-full bg-gray-700 rounded px-3 py-2 text-white text-sm"
               disabled={trainingInProgress}
+              data-testid="epochs-input"
             />
           </div>
           <div>
-            <label className="block text-gray-400 text-xs mb-1">Learning Rate</label>
+            <label htmlFor="learning-rate-input" className="block text-gray-400 text-xs mb-1">
+              Learning Rate
+              {forcedLR != null && (
+                <span className="ml-1 text-yellow-400">🔒 {forcedLR}</span>
+              )}
+            </label>
             <input
+              id="learning-rate-input"
               type="number"
               step="0.01"
-              value={learningRate}
+              value={forcedLR != null ? forcedLR : learningRate}
               onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0.1)}
-              className="w-full bg-gray-700 rounded px-3 py-2 text-white text-sm"
-              disabled={trainingInProgress}
+              className={`w-full bg-gray-700 rounded px-3 py-2 text-white text-sm ${
+                forcedLR != null ? 'opacity-50 cursor-not-allowed text-yellow-400' : ''
+              }`}
+              disabled={trainingInProgress || forcedLR != null}
+              data-testid="learning-rate-input"
             />
           </div>
         </div>
         <button
-          onClick={() => onStartStatic(epochs, learningRate)}
+          onClick={() => onStartStatic(epochs, forcedLR != null ? forcedLR : learningRate)}
           disabled={trainingInProgress}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed py-2 rounded font-semibold text-sm"
+          data-testid="train-static-btn"
+          aria-label={isFailureCase ? 'Train Static - Watch it Fail' : 'Train Static'}
+          className={`w-full py-2 rounded font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+            isFailureCase
+              ? 'bg-red-600 hover:bg-red-700'
+              : 'bg-blue-600 hover:bg-blue-700'
+          }`}
         >
-          Train Static
+          {isFailureCase ? 'Train Static (Watch it Fail!)' : 'Train Static'}
         </button>
       </div>
 
@@ -359,13 +470,14 @@ export const TrainingPanel = memo(function TrainingPanel({
         <div className="text-green-400 text-xs font-semibold mb-2 uppercase tracking-wide">Adaptive Training</div>
         <div className="text-gray-500 text-xs mb-2">Auto-adjusts learning rate (starts at 1.0, decays to 0.01)</div>
         <div className="mb-3">
-          <label className="block text-gray-400 text-xs mb-1">
+          <label htmlFor="target-accuracy-slider" className="block text-gray-400 text-xs mb-1">
             Target Accuracy: <span className="text-green-400 font-mono">{(targetAccuracy * 100).toFixed(0)}%</span>
             {trainingInProgress && (
               <span className="text-yellow-400 ml-2">(adjustable during training)</span>
             )}
           </label>
           <input
+            id="target-accuracy-slider"
             type="range"
             min={50}
             max={100}
@@ -380,6 +492,10 @@ export const TrainingPanel = memo(function TrainingPanel({
               }
             }}
             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+            aria-valuemin={50}
+            aria-valuemax={100}
+            aria-valuenow={targetAccuracy * 100}
+            data-testid="target-accuracy-slider"
           />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>50%</span>
@@ -401,6 +517,8 @@ export const TrainingPanel = memo(function TrainingPanel({
         <button
           onClick={() => onStartAdaptive(targetAccuracy)}
           disabled={trainingInProgress}
+          data-testid="train-adaptive-btn"
+          aria-label={`Train Adaptive to ${(targetAccuracy * 100).toFixed(0)} percent accuracy`}
           className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed py-2 rounded font-semibold text-sm"
         >
           Train Adaptive
@@ -411,18 +529,22 @@ export const TrainingPanel = memo(function TrainingPanel({
       {trainingInProgress && (
         <button
           onClick={onStop}
+          data-testid="stop-training-btn"
+          aria-label="Stop Training and keep current progress"
           className="w-full mb-4 bg-red-600 hover:bg-red-700 py-3 rounded font-semibold text-sm flex items-center justify-center gap-2 animate-pulse"
         >
-          <span>■</span> Stop Training (Keep Current Progress)
+          <span aria-hidden="true">■</span> Stop Training (Keep Current Progress)
         </button>
       )}
 
       {/* Reset and Step buttons */}
-      <div className="flex gap-3 mb-3">
+      <div className="flex gap-3 mb-3" role="group" aria-label="Training actions">
         {onStep && (
           <button
             onClick={() => onStep(learningRate)}
             disabled={trainingInProgress}
+            data-testid="step-btn"
+            aria-label="Train for 1 epoch"
             className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed py-2 rounded font-semibold text-sm"
             title="Train for 1 epoch using static learning rate"
           >
@@ -432,17 +554,50 @@ export const TrainingPanel = memo(function TrainingPanel({
         <button
           onClick={onReset}
           disabled={trainingInProgress}
+          data-testid="reset-btn"
+          aria-label="Reset network to initial state"
           className="flex-1 bg-gray-600 hover:bg-gray-500 disabled:opacity-50 py-2 rounded font-semibold text-sm"
         >
           Reset Network
         </button>
       </div>
 
-      {/* Status message - only show helpful tips */}
+      {/* Status message - show fix suggestion for failure cases */}
       {trainingComplete && !trainingInProgress && (
-        <div className="mt-4 text-center text-green-400 text-sm">
-          Try the inputs above to test the network!
-        </div>
+        <>
+          {isFailureCase && currentAccuracy < 0.6 && currentProblem?.fix_suggestion ? (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 bg-green-900/30 border border-green-500/30 rounded-lg p-3"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">💡</span>
+                <span className="text-green-400 font-medium text-sm">How to Fix This</span>
+              </div>
+              <p className="text-green-200 text-xs">{currentProblem.fix_suggestion}</p>
+              <p className="text-gray-400 text-xs mt-2">
+                Try a different problem to see this concept work correctly!
+              </p>
+            </motion.div>
+          ) : (
+            <div className="mt-4 text-center text-green-400 text-sm">
+              Try the inputs above to test the network!
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Show fix suggestion during training if stuck */}
+      {trainingInProgress && isFailureCase && currentEpoch > 1000 && currentAccuracy < 0.55 && currentProblem?.fix_suggestion && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-4 bg-yellow-900/30 border border-yellow-500/30 rounded-lg p-3"
+        >
+          <div className="text-yellow-400 text-xs font-medium mb-1">💡 This is expected!</div>
+          <p className="text-yellow-200 text-xs">{currentProblem.failure_reason}</p>
+        </motion.div>
       )}
     </div>
   );

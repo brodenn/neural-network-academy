@@ -14,20 +14,27 @@ export const LedIndicator = memo(function LedIndicator({
   correct,
 }: LedIndicatorProps) {
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
+    <div className="bg-gray-800 rounded-lg p-6" data-testid="led-indicator" role="status" aria-live="polite">
       <h2 className="text-xl font-semibold mb-4">LED Output</h2>
 
       <div className="flex flex-col items-center gap-4">
-        {/* LED visualization */}
+        {/* LED visualization - includes pattern for color-blind accessibility */}
         <div
           className={`
-            w-24 h-24 rounded-full transition-all duration-300
+            w-24 h-24 rounded-full transition-all duration-300 flex items-center justify-center
             ${isOn
-              ? 'bg-green-400 shadow-lg shadow-green-400/70'
-              : 'bg-gray-700 border-2 border-gray-600'
+              ? 'bg-green-400 shadow-lg shadow-green-400/70 ring-4 ring-green-300'
+              : 'bg-gray-700 border-4 border-dashed border-gray-500'
             }
           `}
-        />
+          role="img"
+          aria-label={`LED is ${isOn ? 'on' : 'off'}`}
+        >
+          {/* Inner indicator for additional visual cue */}
+          <span className={`text-3xl ${isOn ? 'animate-pulse' : ''}`} aria-hidden="true">
+            {isOn ? '💡' : '○'}
+          </span>
+        </div>
 
         {/* Status text */}
         <div className="text-center">

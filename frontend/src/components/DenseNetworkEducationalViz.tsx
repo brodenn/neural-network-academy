@@ -132,46 +132,6 @@ function Neuron({
   );
 }
 
-// Connection line with animation
-function ConnectionLine({
-  fromX,
-  fromY,
-  toX,
-  toY,
-  weight,
-  isActive,
-  delay = 0,
-}: {
-  fromX: number;
-  fromY: number;
-  toX: number;
-  toY: number;
-  weight: number;
-  isActive: boolean;
-  delay?: number;
-}) {
-  const isPositive = weight >= 0;
-  const color = isPositive ? 'rgba(34, 211, 238, 0.8)' : 'rgba(236, 72, 153, 0.8)';
-  const strokeWidth = 1 + Math.abs(weight) * 2;
-
-  return (
-    <motion.line
-      x1={fromX}
-      y1={fromY}
-      x2={toX}
-      y2={toY}
-      stroke={color}
-      strokeWidth={strokeWidth}
-      initial={{ pathLength: 0, opacity: 0 }}
-      animate={{
-        pathLength: isActive ? 1 : 0.3,
-        opacity: isActive ? 1 : 0.3
-      }}
-      transition={{ duration: 0.5, delay }}
-    />
-  );
-}
-
 export function DenseNetworkEducationalViz({
   layerSizes,
   inputLabels,

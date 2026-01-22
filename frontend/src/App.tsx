@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from './hooks/useSocket';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { ProblemSelector } from './components/ProblemSelector';
 import { InputPanel } from './components/InputPanel';
 import { OutputDisplay } from './components/OutputDisplay';
@@ -7,8 +8,12 @@ import { TrainingPanel } from './components/TrainingPanel';
 import { LossCurve } from './components/LossCurve';
 import { NetworkVisualization } from './components/NetworkVisualization';
 import { FeatureMapVisualization } from './components/FeatureMapVisualization';
-import { TerminalOutput } from './components/TerminalOutput';
+import { WeightHistogram } from './components/WeightHistogram';
 import { DecisionBoundaryViz } from './components/DecisionBoundaryViz';
+import { KeyboardShortcuts } from './components/KeyboardShortcuts';
+import { ProblemInfoModal } from './components/ProblemInfoModal';
+import { ContextualTips } from './components/ContextualTips';
+import { LossLandscape3D } from './components/LossLandscape3D';
 import type { NetworkState, PredictionResult, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
 
 const API_URL = 'http://localhost:5000';
@@ -19,12 +24,22 @@ function App() {
     trainingProgress,
     lastPrediction,
     trainingComplete,
+    trainingError,
     socket,
   } = useSocket();
 
   const [networkState, setNetworkState] = useState<NetworkState | null>(null);
   const [predictions, setPredictions] = useState<PredictionResult[]>([]);
   const [trainingInProgress, setTrainingInProgress] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  // Clear API error after 5 seconds
+  useEffect(() => {
+    if (apiError) {
+      const timer = setTimeout(() => setApiError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [apiError]);
 
   // Problem state
   const [problems, setProblems] = useState<ProblemInfo[]>([]);
@@ -32,15 +47,20 @@ function App() {
   const [inputValues, setInputValues] = useState<number[] | number[][]>([]);
   const [networkType, setNetworkType] = useState<NetworkType>('dense');
   const [featureMaps, setFeatureMaps] = useState<CNNFeatureMaps | null>(null);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+  const [show3DLandscape, setShow3DLandscape] = useState(false);
 
   // Fetch available problems
   const fetchProblems = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/problems`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setProblems(data);
     } catch (err) {
-      console.error('Failed to fetch problems:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to fetch problems:', message);
+      setApiError(`Failed to fetch problems: ${message}`);
     }
   }, []);
 
@@ -48,10 +68,13 @@ function App() {
   const fetchNetworkState = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/network`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setNetworkState(data);
     } catch (err) {
-      console.error('Failed to fetch network state:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to fetch network state:', message);
+      // Don't show error for network state polling - too noisy
     }
   }, []);
 
@@ -75,6 +98,13 @@ function App() {
   // Listen for problem info and training events from websocket
   useEffect(() => {
     if (socket) {
+      // Sync training state from backend on status events (initial connection + reconnection)
+      const handleStatus = (status: { training_in_progress?: boolean }) => {
+        if (status.training_in_progress !== undefined) {
+          setTrainingInProgress(status.training_in_progress);
+        }
+      };
+
       const handleProblemInfo = (info: ProblemInfo) => {
         setCurrentProblem(info);
         setNetworkType(info.network_type || 'dense');
@@ -91,28 +121,48 @@ function App() {
         fetchNetworkState();
       };
 
+      const handleTrainingStarted = () => {
+        // Backend confirmed training has started
+        console.log('Training started confirmed by backend');
+        setTrainingInProgress(true);
+      };
+
       const handleTrainingComplete = () => {
         // Always fetch network state when training completes to get final data
+        console.log('Training complete');
         setTrainingInProgress(false);
         fetchNetworkState();
       };
 
       const handleTrainingStopped = () => {
         // Training was stopped by user
+        console.log('Training stopped');
         setTrainingInProgress(false);
         fetchNetworkState();
       };
 
+      const handleTrainingError = (data: { error: string }) => {
+        // Training crashed - reset state
+        console.error('Training error:', data.error);
+        setTrainingInProgress(false);
+      };
+
+      socket.on('status', handleStatus);
       socket.on('problem_info', handleProblemInfo);
       socket.on('problem_changed', handleProblemChanged);
+      socket.on('training_started', handleTrainingStarted);
       socket.on('training_complete', handleTrainingComplete);
       socket.on('training_stopped', handleTrainingStopped);
+      socket.on('training_error', handleTrainingError);
 
       return () => {
+        socket.off('status', handleStatus);
         socket.off('problem_info', handleProblemInfo);
         socket.off('problem_changed', handleProblemChanged);
+        socket.off('training_started', handleTrainingStarted);
         socket.off('training_complete', handleTrainingComplete);
         socket.off('training_stopped', handleTrainingStopped);
+        socket.off('training_error', handleTrainingError);
       };
     }
   }, [socket, fetchNetworkState]);
@@ -139,10 +189,16 @@ function App() {
   // Handle problem selection
   const handleProblemSelect = async (problemId: string) => {
     try {
-      await fetch(`${API_URL}/api/problems/${problemId}/select`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/problems/${problemId}/select`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
       // Problem change will be handled via websocket
     } catch (err) {
-      console.error('Failed to select problem:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to select problem:', message);
+      setApiError(`Failed to select problem: ${message}`);
     }
   };
 
@@ -164,12 +220,13 @@ function App() {
         body: JSON.stringify({ epochs, learning_rate: learningRate }),
       });
       if (!res.ok) {
-        const data = await res.json();
-        console.error('Training failed:', data.error);
-        setTrainingInProgress(false);
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
     } catch (err) {
-      console.error('Failed to start training:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to start training:', message);
+      setApiError(`Failed to start training: ${message}`);
       setTrainingInProgress(false);
     }
   };
@@ -183,43 +240,62 @@ function App() {
         body: JSON.stringify({ target_accuracy: targetAccuracy }),
       });
       if (!res.ok) {
-        const data = await res.json();
-        console.error('Adaptive training failed:', data.error);
-        setTrainingInProgress(false);
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
     } catch (err) {
-      console.error('Failed to start adaptive training:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to start adaptive training:', message);
+      setApiError(`Failed to start training: ${message}`);
       setTrainingInProgress(false);
     }
   };
 
   const handleStop = async () => {
     try {
-      await fetch(`${API_URL}/api/train/stop`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/train/stop`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
     } catch (err) {
-      console.error('Failed to stop training:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to stop training:', message);
+      setApiError(`Failed to stop training: ${message}`);
     }
   };
 
   const handleUpdateTarget = async (targetAccuracy: number) => {
     try {
-      await fetch(`${API_URL}/api/train/target`, {
+      const res = await fetch(`${API_URL}/api/train/target`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_accuracy: targetAccuracy }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
     } catch (err) {
-      console.error('Failed to update target accuracy:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to update target accuracy:', message);
+      // Don't show error for target updates - minor operation
     }
   };
 
   const handleReset = async () => {
     try {
-      await fetch(`${API_URL}/api/network/reset`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/network/reset`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
       await fetchNetworkState();
       setPredictions([]);
     } catch (err) {
-      console.error('Failed to reset network:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to reset network:', message);
+      setApiError(`Failed to reset network: ${message}`);
     }
   };
 
@@ -230,14 +306,15 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ learning_rate: learningRate }),
       });
-      if (res.ok) {
-        await fetchNetworkState();
-      } else {
-        const data = await res.json();
-        console.error('Step training failed:', data.error);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
+      await fetchNetworkState();
     } catch (err) {
-      console.error('Failed to step train:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to step train:', message);
+      setApiError(`Failed to step train: ${message}`);
     }
   };
 
@@ -248,7 +325,7 @@ function App() {
     useBiases: boolean;
   }) => {
     try {
-      await fetch(`${API_URL}/api/network/architecture`, {
+      const res = await fetch(`${API_URL}/api/network/architecture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -258,9 +335,15 @@ function App() {
           use_biases: settings.useBiases,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
       await fetchNetworkState();
     } catch (err) {
-      console.error('Failed to change settings:', err);
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to change settings:', message);
+      setApiError(`Failed to change settings: ${message}`);
     }
   };
 
@@ -273,126 +356,209 @@ function App() {
     }
   }, [trainingComplete, trainingInProgress, fetchNetworkState]);
 
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onStartTraining: () => handleStartAdaptive(0.99),
+    onStopTraining: handleStop,
+    onReset: handleReset,
+    onStep: networkType === 'dense' ? () => handleStep(0.1) : undefined,
+    trainingInProgress,
+    trainingComplete,
+    disabled: !connected,
+  });
+
+  // Combine errors for display
+  const displayError = apiError || trainingError;
+
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 p-4">
-      {/* Header - compact */}
-      <header className="max-w-7xl mx-auto mb-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h1 className="text-2xl font-bold">Neural Network Learning Lab</h1>
-            <p className="text-gray-500 text-sm">Learn Neural Networks from Scratch - Interactive Visualization</p>
+    <div className="h-screen bg-gray-900 text-gray-100 p-2 lg:p-3 flex flex-col overflow-hidden">
+      {/* Error Banner */}
+      {displayError && (
+        <div className="max-w-[1600px] w-full mx-auto mb-2 flex-shrink-0">
+          <div className="bg-red-900/80 border border-red-600 text-red-100 px-4 py-2 rounded flex justify-between items-center">
+            <span className="text-sm">{displayError}</span>
+            <button
+              onClick={() => setApiError(null)}
+              className="text-red-300 hover:text-red-100 ml-4"
+            >
+              ✕
+            </button>
           </div>
-          <div className="flex gap-2 text-xs">
+        </div>
+      )}
+
+      {/* Header with Problem Menu */}
+      <header className="max-w-[1600px] w-full mx-auto mb-2 flex-shrink-0">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold">Neural Network Learning Lab</h1>
+            <ProblemSelector
+              problems={problems}
+              currentProblem={currentProblem}
+              onSelect={handleProblemSelect}
+              disabled={trainingInProgress}
+            />
+            {currentProblem && (
+              <button
+                onClick={() => setIsInfoModalOpen(true)}
+                className="p-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-cyan-400 hover:text-cyan-300 transition-colors"
+                title="Problem Info"
+                aria-label="Show problem information"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <KeyboardShortcuts
+              trainingInProgress={trainingInProgress}
+              trainingComplete={trainingComplete}
+              hasStep={networkType === 'dense'}
+            />
             <span className={`px-2 py-1 rounded ${connected ? 'bg-green-600' : 'bg-red-600'}`}>
               {connected ? 'Connected' : 'Disconnected'}
             </span>
             <span className={`px-2 py-1 rounded ${trainingComplete ? 'bg-green-600' : 'bg-yellow-600'}`}>
               {trainingComplete ? 'Ready' : 'Training...'}
             </span>
-            {currentProblem && (
-              <span className="px-2 py-1 rounded bg-cyan-600/50">
-                {currentProblem.name}
-              </span>
-            )}
           </div>
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto">
-        {/* Top row: Problem selector + Input + Output */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 items-start">
-          <ProblemSelector
-            problems={problems}
-            currentProblem={currentProblem}
-            onSelect={handleProblemSelect}
-            disabled={trainingInProgress}
-          />
-          <InputPanel
-            problem={currentProblem}
-            values={inputValues}
-            onChange={handleInputChange}
-            disabled={!trainingComplete}
-          />
-          <OutputDisplay
-            problem={currentProblem}
-            prediction={lastPrediction}
-          />
-        </div>
-
-        {/* Middle row: Training controls + Network viz */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4 items-start">
-          <TrainingPanel
-            currentEpoch={trainingProgress?.epoch ?? 0}
-            currentLoss={trainingProgress?.loss ?? 0}
-            currentAccuracy={trainingProgress?.accuracy ?? 0}
-            trainingInProgress={trainingInProgress}
-            trainingComplete={trainingComplete}
-            onStartStatic={handleStartStatic}
-            onStartAdaptive={handleStartAdaptive}
-            onStep={networkType === 'dense' ? handleStep : undefined}
-            onStop={handleStop}
-            onUpdateTarget={handleUpdateTarget}
-            onReset={handleReset}
-            onSettingsChange={networkType === 'dense' ? handleSettingsChange : undefined}
-            currentArchitecture={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
-            currentWeightInit={networkState?.architecture.weight_init ?? 'xavier'}
-            currentHiddenActivation={networkState?.architecture.hidden_activation ?? 'relu'}
-            currentUseBiases={networkState?.architecture.use_biases ?? true}
-            isCNN={networkType === 'cnn'}
-          />
-          {networkType === 'cnn' ? (
-            <FeatureMapVisualization
-              inputGrid={Array.isArray(inputValues[0]) ? (inputValues as number[][]) : []}
-              featureMaps={featureMaps}
-              architecture={networkState?.architecture ?? null}
-              weights={networkState?.weights ?? []}
-              prediction={
-                lastPrediction?.prediction && Array.isArray(lastPrediction.prediction)
-                  ? lastPrediction.prediction
-                  : null
-              }
-              outputLabels={currentProblem?.output_labels ?? []}
+      {/* Main content - 2 column layout */}
+      <main className="max-w-[1600px] w-full mx-auto flex-1 min-h-0">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 h-full">
+          {/* Left column: Training Controls + Input/Output + Loss Curve */}
+          <div className="space-y-3 overflow-y-auto">
+            {/* Input + Output row */}
+            <div className="grid grid-cols-2 gap-3">
+              <InputPanel
+                problem={currentProblem}
+                values={inputValues}
+                onChange={handleInputChange}
+                disabled={!trainingComplete}
+              />
+              <OutputDisplay
+                problem={currentProblem}
+                prediction={lastPrediction}
+              />
+            </div>
+            <TrainingPanel
+              currentEpoch={trainingProgress?.epoch ?? 0}
+              currentLoss={trainingProgress?.loss ?? 0}
+              currentAccuracy={trainingProgress?.accuracy ?? 0}
+              trainingInProgress={trainingInProgress}
+              trainingComplete={trainingComplete}
+              onStartStatic={handleStartStatic}
+              onStartAdaptive={handleStartAdaptive}
+              onStep={networkType === 'dense' ? handleStep : undefined}
+              onStop={handleStop}
+              onUpdateTarget={handleUpdateTarget}
+              onReset={handleReset}
+              onSettingsChange={networkType === 'dense' ? handleSettingsChange : undefined}
+              currentArchitecture={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
+              currentWeightInit={networkState?.architecture.weight_init ?? 'xavier'}
+              currentHiddenActivation={networkState?.architecture.hidden_activation ?? 'relu'}
+              currentUseBiases={networkState?.architecture.use_biases ?? true}
+              isCNN={networkType === 'cnn'}
+              currentProblem={currentProblem}
             />
-          ) : (
-            <NetworkVisualization
-              layerSizes={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
-              weights={networkState?.weights ?? []}
-              activations={lastPrediction?.activations}
-              inputLabels={currentProblem?.input_labels ?? []}
-              outputLabels={currentProblem?.output_labels ?? []}
-              outputActivation={currentProblem?.output_activation ?? 'sigmoid'}
+            <ContextualTips
+              problem={currentProblem}
+              currentEpoch={trainingProgress?.epoch ?? 0}
+              currentAccuracy={trainingProgress?.accuracy ?? 0}
+              currentLoss={trainingProgress?.loss ?? 0}
+              trainingInProgress={trainingInProgress}
             />
-          )}
-        </div>
+            {/* Loss Visualization with 2D/3D toggle */}
+            <div className="relative">
+              {/* 3D Toggle Button - positioned absolutely to overlay on both views */}
+              <button
+                onClick={() => setShow3DLandscape(!show3DLandscape)}
+                className="absolute top-2 right-2 z-10 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              >
+                {show3DLandscape ? '2D Chart' : '3D View'}
+              </button>
+              {show3DLandscape ? (
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <h2 className="text-lg font-semibold mb-2">Loss Landscape</h2>
+                  <LossLandscape3D
+                    lossHistory={networkState?.loss_history ?? []}
+                    currentEpoch={trainingProgress?.epoch}
+                    trainingInProgress={trainingInProgress}
+                    totalEpochs={networkState?.total_epochs}
+                  />
+                  <div className="mt-2 text-xs text-gray-500 text-center">
+                    Drag to rotate | Scroll to zoom | Ball follows gradient descent
+                  </div>
+                </div>
+              ) : (
+                <LossCurve
+                  lossHistory={networkState?.loss_history ?? []}
+                  accuracyHistory={networkState?.accuracy_history ?? []}
+                  totalEpochs={networkState?.total_epochs}
+                  trainingComplete={trainingComplete}
+                />
+              )}
+            </div>
+          </div>
 
-        {/* Bottom row: Loss curve + Decision Boundary (for 2D) + Terminal */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-          <LossCurve
-            lossHistory={networkState?.loss_history ?? []}
-            accuracyHistory={networkState?.accuracy_history ?? []}
-            totalEpochs={networkState?.total_epochs}
-          />
-          <DecisionBoundaryViz
-            problemId={currentProblem?.id ?? ''}
-            trainingComplete={trainingComplete}
-            currentEpoch={trainingProgress?.epoch ?? 0}
-            onPointClick={(x, y) => {
-              // When user clicks on decision boundary, update input values
-              setInputValues([x, y]);
-              if (socket && trainingComplete) {
-                socket.emit('set_inputs', { inputs: [x, y] });
-              }
-            }}
-          />
-          <TerminalOutput predictions={predictions} />
+          {/* Right column: Network Viz + Decision Boundary + Terminal */}
+          <div className="space-y-3 overflow-y-auto">
+            {networkType === 'cnn' ? (
+              <FeatureMapVisualization
+                inputGrid={Array.isArray(inputValues[0]) ? (inputValues as number[][]) : []}
+                featureMaps={featureMaps}
+                architecture={networkState?.architecture ?? null}
+                weights={networkState?.weights ?? []}
+                prediction={
+                  lastPrediction?.prediction && Array.isArray(lastPrediction.prediction)
+                    ? lastPrediction.prediction
+                    : null
+                }
+                outputLabels={currentProblem?.output_labels ?? []}
+              />
+            ) : (
+              <NetworkVisualization
+                layerSizes={networkState?.architecture.layer_sizes ?? currentProblem?.default_architecture ?? [5, 12, 8, 4, 1]}
+                weights={networkState?.weights ?? []}
+                activations={lastPrediction?.activations}
+                inputLabels={currentProblem?.input_labels ?? []}
+                outputLabels={currentProblem?.output_labels ?? []}
+                outputActivation={currentProblem?.output_activation ?? 'sigmoid'}
+                trainingInProgress={trainingInProgress}
+                currentEpoch={trainingProgress?.epoch ?? 0}
+              />
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <DecisionBoundaryViz
+                problemId={currentProblem?.id ?? ''}
+                trainingComplete={trainingComplete}
+                currentEpoch={trainingProgress?.epoch ?? 0}
+                onPointClick={(x, y) => {
+                  setInputValues([x, y]);
+                  if (socket && trainingComplete) {
+                    socket.emit('set_inputs', { inputs: [x, y] });
+                  }
+                }}
+              />
+              <WeightHistogram
+                weights={networkState?.weights ?? []}
+                trainingInProgress={trainingInProgress}
+              />
+            </div>
+          </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="max-w-7xl mx-auto mt-4 text-center text-gray-600 text-xs">
-        Learn Neural Networks from Scratch | Pure NumPy Implementation | {problems.length} Progressive Problems
-      </footer>
+      {/* Problem Info Modal */}
+      <ProblemInfoModal
+        problem={currentProblem}
+        isOpen={isInfoModalOpen}
+        onClose={() => setIsInfoModalOpen(false)}
+      />
     </div>
   );
 }

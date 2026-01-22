@@ -12,8 +12,8 @@ interface InputPanelProps {
 export function InputPanel({ problem, values, onChange, disabled = false }: InputPanelProps) {
   if (!problem) {
     return (
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-3">Input</h2>
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h2 className="text-sm font-semibold mb-2">Input</h2>
         <p className="text-gray-500 text-sm">Select a problem to configure inputs</p>
       </div>
     );
@@ -41,29 +41,120 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
     [values, onChange]
   );
 
+  // Generate truth table for binary problems
+  const getTruthTable = () => {
+    if (!problem) return null;
+    const numInputs = config.labels.length;
+    if (numInputs > 3) return null; // Only show for small inputs
+
+    // Define expected outputs for known problems
+    const expectedOutputs: Record<string, Record<string, number>> = {
+      // Level 1: Single Neuron
+      'and_gate': { '00': 0, '01': 0, '10': 0, '11': 1 },
+      'or_gate': { '00': 0, '01': 1, '10': 1, '11': 1 },
+      'not_gate': { '0': 1, '1': 0 },
+      'nand_gate': { '00': 1, '01': 1, '10': 1, '11': 0 },
+      // Level 2: XOR problems
+      'xor': { '00': 0, '01': 1, '10': 1, '11': 0 },
+      'xnor': { '00': 1, '01': 0, '10': 0, '11': 1 },
+      // Level 5: Failure cases (XOR-based)
+      'fail_xor_no_hidden': { '00': 0, '01': 1, '10': 1, '11': 0 },
+      'fail_zero_init': { '00': 0, '01': 1, '10': 1, '11': 0 },
+      'fail_lr_high': { '00': 0, '01': 1, '10': 1, '11': 0 },
+      'fail_lr_low': { '00': 0, '01': 1, '10': 1, '11': 0 },
+      'fail_vanishing': { '00': 0, '01': 1, '10': 1, '11': 0 },
+    };
+
+    const outputs = expectedOutputs[problem.id];
+    if (!outputs) return null;
+
+    const rows: { inputs: number[]; output: number }[] = [];
+    const combinations = Math.pow(2, numInputs);
+    for (let i = 0; i < combinations; i++) {
+      const inputs = [];
+      for (let j = numInputs - 1; j >= 0; j--) {
+        inputs.push((i >> j) & 1);
+      }
+      const key = inputs.join('');
+      rows.push({ inputs, output: outputs[key] ?? 0 });
+    }
+    return rows;
+  };
+
   const renderBinaryInputs = () => {
     const vals = values as number[];
+    const numInputs = config.labels.length;
+    const truthTable = getTruthTable();
+    const currentKey = vals.slice(0, numInputs).join('');
+
     return (
-      <div className="grid grid-cols-5 gap-2">
-        {config.labels.map((label, i) => (
-          <button
-            key={i}
-            onClick={() => handleToggle(i)}
-            disabled={disabled}
-            className={`
-              flex flex-col items-center justify-center p-3 rounded-lg transition-all
-              ${
-                vals[i] === 1
-                  ? 'bg-green-600 text-white shadow-lg shadow-green-500/30'
-                  : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-              }
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-            `}
-          >
-            <span className="text-2xl font-bold">{vals[i]}</span>
-            <span className="text-xs mt-1">{label}</span>
-          </button>
-        ))}
+      <div className="space-y-3">
+        {/* Input buttons - responsive grid */}
+        <div className={`grid gap-2 ${numInputs <= 2 ? 'grid-cols-2' : numInputs <= 3 ? 'grid-cols-3' : 'grid-cols-5'}`}>
+          {config.labels.map((label, i) => (
+            <button
+              key={i}
+              onClick={() => handleToggle(i)}
+              disabled={disabled}
+              data-testid={`input-toggle-${i}`}
+              aria-label={`${label}: ${vals[i] === 1 ? 'On' : 'Off'}`}
+              aria-pressed={vals[i] === 1}
+              className={`
+                flex flex-col items-center justify-center p-3 rounded-lg transition-all
+                ${
+                  vals[i] === 1
+                    ? 'bg-green-600 text-white shadow-lg shadow-green-500/30 ring-2 ring-green-400'
+                    : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                }
+                ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+              `}
+            >
+              <span className="text-2xl font-bold" aria-hidden="true">{vals[i]}</span>
+              <span className="text-xs mt-1">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Truth table for small binary problems */}
+        {truthTable && (
+          <div className="bg-gray-900/50 rounded-lg p-2">
+            <div className="text-xs text-gray-500 mb-1.5 font-medium">Truth Table</div>
+            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numInputs + 1}, 1fr)` }}>
+              {/* Header */}
+              {config.labels.map((label, i) => (
+                <div key={`h-${i}`} className="text-xs text-gray-400 text-center font-medium">{label}</div>
+              ))}
+              <div className="text-xs text-gray-400 text-center font-medium">Out</div>
+
+              {/* Rows */}
+              {truthTable.map((row, rowIdx) => {
+                const rowKey = row.inputs.join('');
+                const isCurrentRow = rowKey === currentKey;
+                return row.inputs.map((val, i) => (
+                  <div
+                    key={`${rowIdx}-${i}`}
+                    className={`text-xs text-center py-0.5 rounded ${
+                      isCurrentRow ? 'bg-cyan-600/30 text-cyan-400 font-bold' : 'text-gray-300'
+                    }`}
+                  >
+                    {val}
+                  </div>
+                )).concat(
+                  <div
+                    key={`${rowIdx}-out`}
+                    className={`text-xs text-center py-0.5 rounded ${
+                      isCurrentRow
+                        ? row.output === 1 ? 'bg-green-600/30 text-green-400 font-bold' : 'bg-red-600/30 text-red-400 font-bold'
+                        : row.output === 1 ? 'text-green-400' : 'text-gray-400'
+                    }`}
+                  >
+                    {row.output}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -86,6 +177,12 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
               value={vals[i] || 0}
               onChange={(e) => handleValueChange(i, parseFloat(e.target.value))}
               disabled={disabled}
+              data-testid={`input-slider-${i}`}
+              aria-label={label}
+              aria-valuemin={config.min || 0}
+              aria-valuemax={config.max || 1}
+              aria-valuenow={vals[i] || 0}
+              aria-valuetext={`${label}: ${(vals[i] || 0).toFixed(2)}`}
               className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500 disabled:opacity-50"
             />
           </div>
@@ -289,20 +386,7 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
     onChange(digitPatterns[digit]);
   };
 
-  // Arrow patterns for arrow direction problem
-  const arrowPatterns: Record<string, number[][]> = {
-    up: [[0,0,0,1,1,0,0,0],[0,0,1,1,1,1,0,0],[0,1,1,1,1,1,1,0],[1,1,0,1,1,0,1,1],[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0]],
-    down: [[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,1,1,0,0,0],[1,1,0,1,1,0,1,1],[0,1,1,1,1,1,1,0],[0,0,1,1,1,1,0,0],[0,0,0,1,1,0,0,0]],
-    left: [[0,0,0,1,0,0,0,0],[0,0,1,1,0,0,0,0],[0,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],[0,1,1,1,1,1,1,1],[0,0,1,1,0,0,0,0],[0,0,0,1,0,0,0,0]],
-    right: [[0,0,0,0,1,0,0,0],[0,0,0,0,1,1,0,0],[1,1,1,1,1,1,1,0],[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,0],[0,0,0,0,1,1,0,0],[0,0,0,0,1,0,0,0]],
-  };
-
-  const generateArrow = (direction: string) => {
-    onChange(arrowPatterns[direction]);
-  };
-
-  const isDigitProblem = problem?.id === 'digit_recognition';
-  const isArrowProblem = problem?.id === 'arrow_direction';
+  const isDigitProblem = problem?.id === 'digits';
 
   const renderGridInputs = () => (
     <div className="space-y-3" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onContextMenu={handleContextMenu}>
@@ -310,6 +394,9 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
       <div
         className="grid gap-0.5 bg-gray-900 p-2 rounded-lg select-none"
         style={{ gridTemplateColumns: `repeat(${gridSize}, 1fr)` }}
+        data-testid="input-grid"
+        role="grid"
+        aria-label={`${gridSize}×${gridSize} drawing grid`}
       >
         {gridValues.map((row, rowIdx) =>
           row.map((val, colIdx) => {
@@ -360,7 +447,7 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
       </div>
       <p className="text-xs text-gray-500">Right-click to erase, left-click to draw</p>
 
-      {/* Preset buttons - shapes, digits, or arrows depending on problem */}
+      {/* Preset buttons - digits or shapes depending on problem */}
       {isDigitProblem ? (
         <div className="space-y-2">
           <div className="grid grid-cols-5 gap-1">
@@ -394,54 +481,6 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
           >
             🗑️ Clear
           </button>
-        </div>
-      ) : isArrowProblem ? (
-        <div className="space-y-2">
-          <div className="grid grid-cols-3 gap-2">
-            <div />
-            <button
-              onClick={() => generateArrow('up')}
-              disabled={disabled}
-              className="px-2 py-3 bg-gray-700 hover:bg-gray-600 rounded text-xl disabled:opacity-50 transition-colors"
-            >
-              ↑
-            </button>
-            <div />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => generateArrow('left')}
-              disabled={disabled}
-              className="px-2 py-3 bg-gray-700 hover:bg-gray-600 rounded text-xl disabled:opacity-50 transition-colors"
-            >
-              ←
-            </button>
-            <button
-              onClick={clearGrid}
-              disabled={disabled}
-              className="px-2 py-3 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-50 transition-colors"
-            >
-              🗑️
-            </button>
-            <button
-              onClick={() => generateArrow('right')}
-              disabled={disabled}
-              className="px-2 py-3 bg-gray-700 hover:bg-gray-600 rounded text-xl disabled:opacity-50 transition-colors"
-            >
-              →
-            </button>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div />
-            <button
-              onClick={() => generateArrow('down')}
-              disabled={disabled}
-              className="px-2 py-3 bg-gray-700 hover:bg-gray-600 rounded text-xl disabled:opacity-50 transition-colors"
-            >
-              ↓
-            </button>
-            <div />
-          </div>
         </div>
       ) : (
         <div className="grid grid-cols-4 gap-2">
@@ -483,8 +522,8 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
     : `${problem.input_labels.length} values`;
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h2 className="text-lg font-semibold mb-3">
+    <div className="bg-gray-800 rounded-lg p-3" data-testid="input-panel" role="region" aria-label="Input Controls">
+      <h2 className="text-sm font-semibold mb-2">
         Input
         <span className="text-sm font-normal text-gray-500 ml-2">
           ({inputDescription})

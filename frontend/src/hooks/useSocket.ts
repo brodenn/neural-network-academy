@@ -11,6 +11,7 @@ interface UseSocketReturn {
   lastPrediction: PredictionResult | null;
   systemStatus: SystemStatus | null;
   trainingComplete: boolean;
+  trainingError: string | null;
   toggleButton: (index: number) => void;
   setButtons: (states: number[]) => void;
   socket: Socket | null;
@@ -24,6 +25,7 @@ export function useSocket(): UseSocketReturn {
   const [lastPrediction, setLastPrediction] = useState<PredictionResult | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [trainingComplete, setTrainingComplete] = useState(false);
+  const [trainingError, setTrainingError] = useState<string | null>(null);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, {
@@ -42,9 +44,11 @@ export function useSocket(): UseSocketReturn {
       setConnected(false);
     });
 
-    socket.on('status', (status: SystemStatus & { connected: boolean }) => {
+    socket.on('status', (status: SystemStatus & { connected: boolean; training_in_progress?: boolean }) => {
+      console.log('Received status:', status);
       setSystemStatus(status);
       setTrainingComplete(status.training_complete);
+      // Note: training_in_progress is managed by App.tsx, but this provides initial sync
     });
 
     socket.on('gpio_state', (state: GPIOState) => {
@@ -52,15 +56,25 @@ export function useSocket(): UseSocketReturn {
     });
 
     socket.on('training_progress', (progress: TrainingProgress) => {
+      console.log('Received training_progress:', progress);
       setTrainingProgress(progress);
     });
 
-    socket.on('training_started', () => {
+    socket.on('training_started', (data) => {
+      console.log('Received training_started:', data);
       setTrainingComplete(false);
+      setTrainingError(null);  // Clear any previous error
+    });
+
+    socket.on('training_error', (data: { error: string }) => {
+      console.error('Received training_error:', data.error);
+      setTrainingError(data.error);
     });
 
     socket.on('training_complete', (result: TrainingResult) => {
+      console.log('Received training_complete:', result);
       setTrainingComplete(true);
+      setTrainingError(null);  // Clear any previous error
       setTrainingProgress({
         epoch: result.epochs,
         loss: result.final_loss,
@@ -99,6 +113,7 @@ export function useSocket(): UseSocketReturn {
     lastPrediction,
     systemStatus,
     trainingComplete,
+    trainingError,
     toggleButton,
     setButtons,
     socket: socketRef.current,

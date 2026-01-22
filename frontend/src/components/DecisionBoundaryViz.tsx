@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 
+// Animation configuration
+const TRANSITION_DURATION = 200; // ms for ink spread animation
+const ENABLE_TRANSITIONS = true;
+
 interface DecisionBoundaryData {
   predictions: number[][];
   confidence: number[][];
@@ -37,8 +41,20 @@ export function DecisionBoundaryViz({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; pred: number } | null>(null);
 
-  // Only fetch for 2D problems
-  const is2DProblem = ['circle', 'donut', 'spiral', 'quadrants', 'colors'].includes(problemId);
+  // Animation state for ink spread effect
+  const prevImageDataRef = useRef<ImageData | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Only fetch for 2D problems (Level 3: Decision Boundaries, Level 5: fail_underfit, Level 6: Multi-class)
+  const is2DProblem = [
+    // Level 3: Decision Boundaries
+    'two_blobs', 'moons', 'circle', 'donut', 'spiral',
+    // Level 5: Failure case (spiral-based)
+    'fail_underfit',
+    // Level 6: Multi-class (2D input)
+    'quadrants', 'blobs', 'colors',
+  ].includes(problemId);
 
   const fetchBoundary = useCallback(async () => {
     if (!is2DProblem || !trainingComplete) return;
@@ -75,22 +91,22 @@ export function DecisionBoundaryViz({
     }
   }, [currentEpoch, is2DProblem, fetchBoundary]);
 
-  // Render to canvas
-  useEffect(() => {
-    if (!data || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const { predictions, confidence, resolution, category, training_data } = data;
-    const width = canvas.width;
-    const height = canvas.height;
+  // Helper: Render boundary heatmap to an ImageData (without training points)
+  const renderBoundaryToImageData = useCallback((
+    _ctx: CanvasRenderingContext2D,
+    boundaryData: DecisionBoundaryData,
+    width: number,
+    height: number
+  ): ImageData => {
+    const { predictions, confidence, resolution, category } = boundaryData;
     const cellWidth = width / resolution;
     const cellHeight = height / resolution;
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+    // Create temporary canvas for rendering
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d')!;
 
     // Draw decision boundary heatmap
     for (let row = 0; row < resolution; row++) {
@@ -101,33 +117,57 @@ export function DecisionBoundaryViz({
         // Map prediction to color
         let color: string;
         if (category === 'multi-class') {
-          // Multi-class: use different hues for different classes
-          const hue = (pred * 360) / data.output_labels.length;
+          const hue = (pred * 360) / boundaryData.output_labels.length;
           const saturation = showConfidence ? conf * 100 : 70;
           color = `hsl(${hue}, ${saturation}%, 50%)`;
         } else {
-          // Binary: blue (0) to red (1) gradient
           if (showConfidence) {
-            const intensity = Math.abs(pred - 0.5) * 2; // 0 at boundary, 1 at extremes
+            const intensity = Math.abs(pred - 0.5) * 2;
             if (pred >= 0.5) {
-              color = `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`; // Red
+              color = `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`;
             } else {
-              color = `rgba(59, 130, 246, ${0.3 + intensity * 0.7})`; // Blue
+              color = `rgba(59, 130, 246, ${0.3 + intensity * 0.7})`;
             }
           } else {
             if (pred >= 0.5) {
-              color = `rgba(239, 68, 68, ${0.5 + pred * 0.3})`; // Red
+              color = `rgba(239, 68, 68, ${0.5 + pred * 0.3})`;
             } else {
-              color = `rgba(59, 130, 246, ${0.5 + (1 - pred) * 0.3})`; // Blue
+              color = `rgba(59, 130, 246, ${0.5 + (1 - pred) * 0.3})`;
             }
           }
         }
 
-        ctx.fillStyle = color;
-        // Note: y is flipped because canvas y increases downward
-        ctx.fillRect(col * cellWidth, (resolution - 1 - row) * cellHeight, cellWidth + 1, cellHeight + 1);
+        tempCtx.fillStyle = color;
+        tempCtx.fillRect(col * cellWidth, (resolution - 1 - row) * cellHeight, cellWidth + 1, cellHeight + 1);
       }
     }
+
+    return tempCtx.getImageData(0, 0, width, height);
+  }, [showConfidence]);
+
+  // Helper: Lerp between two ImageData objects
+  const lerpImageData = useCallback((
+    from: ImageData,
+    to: ImageData,
+    t: number
+  ): ImageData => {
+    const result = new ImageData(from.width, from.height);
+    for (let i = 0; i < from.data.length; i++) {
+      result.data[i] = from.data[i] * (1 - t) + to.data[i] * t;
+    }
+    return result;
+  }, []);
+
+  // Helper: Draw contour and training points on top of boundary
+  const drawOverlays = useCallback((
+    ctx: CanvasRenderingContext2D,
+    boundaryData: DecisionBoundaryData,
+    width: number,
+    height: number
+  ) => {
+    const { predictions, resolution, category, training_data } = boundaryData;
+    const cellWidth = width / resolution;
+    const cellHeight = height / resolution;
 
     // Draw decision boundary contour (where prediction ~= 0.5 for binary)
     if (category === 'binary') {
@@ -142,7 +182,6 @@ export function DecisionBoundaryViz({
           const p10 = predictions[row + 1][col];
           const p11 = predictions[row + 1][col + 1];
 
-          // Check if 0.5 contour passes through this cell
           const crosses = (
             (p00 < 0.5 && (p01 >= 0.5 || p10 >= 0.5 || p11 >= 0.5)) ||
             (p00 >= 0.5 && (p01 < 0.5 || p10 < 0.5 || p11 < 0.5))
@@ -162,30 +201,27 @@ export function DecisionBoundaryViz({
     // Draw training data points
     if (showTrainingData && training_data) {
       const { inputs, labels } = training_data;
-      const xMin = data.x_range[0];
-      const xMax = data.x_range[data.x_range.length - 1];
-      const yMin = data.y_range[0];
-      const yMax = data.y_range[data.y_range.length - 1];
+      const xMin = boundaryData.x_range[0];
+      const xMax = boundaryData.x_range[boundaryData.x_range.length - 1];
+      const yMin = boundaryData.y_range[0];
+      const yMax = boundaryData.y_range[boundaryData.y_range.length - 1];
 
       for (let i = 0; i < inputs.length; i++) {
         const [x, y] = inputs[i];
         const label = labels[i];
 
-        // Convert to canvas coordinates
         const canvasX = ((x - xMin) / (xMax - xMin)) * width;
         const canvasY = ((yMax - y) / (yMax - yMin)) * height;
 
-        // Determine point color based on label
         let pointColor: string;
         if (category === 'multi-class') {
           const classIdx = label.indexOf(Math.max(...label));
-          const hue = (classIdx * 360) / data.output_labels.length;
+          const hue = (classIdx * 360) / boundaryData.output_labels.length;
           pointColor = `hsl(${hue}, 90%, 40%)`;
         } else {
           pointColor = label[0] >= 0.5 ? '#dc2626' : '#2563eb';
         }
 
-        // Draw point with white border
         ctx.beginPath();
         ctx.arc(canvasX, canvasY, 5, 0, Math.PI * 2);
         ctx.fillStyle = pointColor;
@@ -195,7 +231,70 @@ export function DecisionBoundaryViz({
         ctx.stroke();
       }
     }
-  }, [data, showTrainingData, showConfidence]);
+  }, [showTrainingData]);
+
+  // Render to canvas with smooth transitions
+  useEffect(() => {
+    if (!data || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Cancel any ongoing animation
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    // Generate new target image data
+    const newTargetData = renderBoundaryToImageData(ctx, data, width, height);
+
+    // If transitions are enabled and we have previous data, animate
+    if (ENABLE_TRANSITIONS && prevImageDataRef.current) {
+      setIsTransitioning(true);
+      const startTime = performance.now();
+      const fromData = prevImageDataRef.current;
+      const toData = newTargetData;
+
+      const animate = (time: number) => {
+        const elapsed = time - startTime;
+        const progress = Math.min(elapsed / TRANSITION_DURATION, 1);
+        // Ease out cubic for smooth deceleration
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        // Lerp and draw
+        const interpolated = lerpImageData(fromData, toData, eased);
+        ctx.putImageData(interpolated, 0, 0);
+
+        // Draw overlays on top
+        drawOverlays(ctx, data, width, height);
+
+        if (progress < 1) {
+          animationFrameRef.current = requestAnimationFrame(animate);
+        } else {
+          setIsTransitioning(false);
+          prevImageDataRef.current = newTargetData;
+        }
+      };
+
+      animationFrameRef.current = requestAnimationFrame(animate);
+    } else {
+      // No transition - direct render
+      ctx.putImageData(newTargetData, 0, 0);
+      drawOverlays(ctx, data, width, height);
+      prevImageDataRef.current = newTargetData;
+    }
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [data, showTrainingData, showConfidence, renderBoundaryToImageData, lerpImageData, drawOverlays]);
 
   // Handle canvas click
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -262,7 +361,7 @@ export function DecisionBoundaryViz({
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-gray-800 rounded-lg p-4"
+      className="bg-gray-800 rounded-lg p-3"
     >
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -297,6 +396,15 @@ export function DecisionBoundaryViz({
           >
             {loading ? '...' : 'Refresh'}
           </button>
+          {isTransitioning && (
+            <motion.span
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-xs text-cyan-400"
+            >
+              Updating...
+            </motion.span>
+          )}
         </div>
       </div>
 

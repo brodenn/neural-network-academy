@@ -3,6 +3,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { LayerWeights } from '../types';
 import { DenseNetworkEducationalViz } from './DenseNetworkEducationalViz';
 
+// Animation settings (can be made configurable via props)
+const ANIMATION_CONFIG = {
+  enablePulse: true,
+  enableParticles: true,
+  enableWeightSpring: true,
+  enableBackprop: true,
+  particleCount: 3,
+  pulseDuration: 1.5,
+  springStiffness: 300,
+  springDamping: 20,
+};
+
 interface NetworkVisualizationProps {
   layerSizes: number[];
   weights: LayerWeights[];
@@ -10,6 +22,8 @@ interface NetworkVisualizationProps {
   inputLabels?: string[];
   outputLabels?: string[];
   outputActivation?: 'sigmoid' | 'softmax';
+  trainingInProgress?: boolean;
+  currentEpoch?: number;
 }
 
 interface TooltipData {
@@ -26,10 +40,12 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   inputLabels = [],
   outputLabels = [],
   outputActivation = 'sigmoid',
+  trainingInProgress = false,
+  currentEpoch = 0,
 }: NetworkVisualizationProps) {
   // Use viewBox for responsive scaling
   const viewBoxWidth = 800;
-  const viewBoxHeight = 450;
+  const viewBoxHeight = 380;
   const margin = { top: 35, right: 50, bottom: 45, left: 50 };
   const width = viewBoxWidth - margin.left - margin.right;
   const height = viewBoxHeight - margin.top - margin.bottom;
@@ -48,12 +64,63 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   const [prevActivations, setPrevActivations] = useState<number[][] | undefined>();
   const animationRef = useRef<number | null>(null);
 
-  // Trigger animation when activations change
+  // Backpropagation animation state
+  const [backpropActive, setBackpropActive] = useState(false);
+  const [backpropLayer, setBackpropLayer] = useState(-1);
+  const prevEpochRef = useRef(currentEpoch);
+
+  // Previous weights for spring animation
+  const prevWeightsRef = useRef<Map<string, number>>(new Map());
+  const [weightDeltas, setWeightDeltas] = useState<Map<string, number>>(new Map());
+
+  // Particle animation state
+  const [particles, setParticles] = useState<Array<{
+    id: string;
+    fromLayer: number;
+    toLayer: number;
+    fromNeuron: number;
+    toNeuron: number;
+    progress: number;
+    activation: number;
+  }>>([]);
+
+  // Trigger forward pass animation when activations change
   useEffect(() => {
     if (activations && JSON.stringify(activations) !== JSON.stringify(prevActivations)) {
       setAnimationProgress(0);
       const startTime = performance.now();
       const duration = 500;
+
+      // Start particle animation if enabled
+      if (ANIMATION_CONFIG.enableParticles && activations.length > 1) {
+        const newParticles: typeof particles = [];
+        for (let layer = 0; layer < layerSizes.length - 1; layer++) {
+          for (let from = 0; from < layerSizes[layer]; from++) {
+            const fromActivation = activations[layer]?.[from] ?? 0;
+            // Only spawn particles for active neurons
+            if (fromActivation > 0.2) {
+              // Spawn particles to random subset of next layer (limit to avoid too many)
+              const targetCount = Math.min(ANIMATION_CONFIG.particleCount, layerSizes[layer + 1]);
+              const targets = Array.from({ length: layerSizes[layer + 1] }, (_, i) => i)
+                .sort(() => Math.random() - 0.5)
+                .slice(0, targetCount);
+
+              for (const to of targets) {
+                newParticles.push({
+                  id: `p-${layer}-${from}-${to}-${Date.now()}-${Math.random()}`,
+                  fromLayer: layer,
+                  toLayer: layer + 1,
+                  fromNeuron: from,
+                  toNeuron: to,
+                  progress: 0,
+                  activation: fromActivation,
+                });
+              }
+            }
+          }
+        }
+        setParticles(newParticles);
+      }
 
       const animate = (time: number) => {
         const elapsed = time - startTime;
@@ -62,10 +129,16 @@ export const NetworkVisualization = memo(function NetworkVisualization({
         const eased = 1 - Math.pow(1 - progress, 3);
         setAnimationProgress(eased);
 
+        // Update particle progress
+        if (ANIMATION_CONFIG.enableParticles) {
+          setParticles(prev => prev.map(p => ({ ...p, progress: eased })));
+        }
+
         if (progress < 1) {
           animationRef.current = requestAnimationFrame(animate);
         } else {
           setPrevActivations(activations);
+          setParticles([]); // Clear particles when animation completes
         }
       };
 
@@ -77,7 +150,63 @@ export const NetworkVisualization = memo(function NetworkVisualization({
         }
       };
     }
-  }, [activations, prevActivations]);
+  }, [activations, prevActivations, layerSizes]);
+
+  // Trigger backpropagation animation when epoch changes during training
+  useEffect(() => {
+    if (trainingInProgress && currentEpoch !== prevEpochRef.current && currentEpoch > 0) {
+      if (ANIMATION_CONFIG.enableBackprop) {
+        setBackpropActive(true);
+        setBackpropLayer(layerSizes.length - 1);
+
+        // Animate backward through layers
+        let layer = layerSizes.length - 1;
+        const backpropInterval = setInterval(() => {
+          layer--;
+          if (layer < 0) {
+            clearInterval(backpropInterval);
+            setBackpropActive(false);
+            setBackpropLayer(-1);
+          } else {
+            setBackpropLayer(layer);
+          }
+        }, 80); // Fast cascade through layers
+
+        return () => clearInterval(backpropInterval);
+      }
+    }
+    prevEpochRef.current = currentEpoch;
+  }, [currentEpoch, trainingInProgress, layerSizes.length]);
+
+  // Track weight changes for spring animation
+  useEffect(() => {
+    if (ANIMATION_CONFIG.enableWeightSpring && weights.length > 0) {
+      const newDeltas = new Map<string, number>();
+
+      weights.forEach((layer, layerIdx) => {
+        if (!layer?.weights) return;
+        layer.weights.forEach((sourceWeights, srcIdx) => {
+          sourceWeights.forEach((weight, tgtIdx) => {
+            const key = `${layerIdx}-${srcIdx}-${tgtIdx}`;
+            const prevWeight = prevWeightsRef.current.get(key);
+            if (prevWeight !== undefined) {
+              const delta = weight - prevWeight;
+              if (Math.abs(delta) > 0.001) {
+                newDeltas.set(key, delta);
+              }
+            }
+            prevWeightsRef.current.set(key, weight);
+          });
+        });
+      });
+
+      if (newDeltas.size > 0) {
+        setWeightDeltas(newDeltas);
+        // Clear deltas after animation completes
+        setTimeout(() => setWeightDeltas(new Map()), 300);
+      }
+    }
+  }, [weights]);
 
   // Calculate neuron radius based on layer count
   const neuronRadius = useMemo(() => {
@@ -288,8 +417,60 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   const hasActivations = activations && activations.length > 0;
   const isAnimating = animationProgress < 1 && hasActivations;
 
+  // Helper: calculate position along a cubic Bezier curve
+  const getPointOnBezier = useCallback((
+    x1: number, y1: number, // start
+    cx1: number, cy1: number, // control point 1
+    cx2: number, cy2: number, // control point 2
+    x2: number, y2: number, // end
+    t: number // progress 0-1
+  ) => {
+    const u = 1 - t;
+    const tt = t * t;
+    const uu = u * u;
+    const uuu = uu * u;
+    const ttt = tt * t;
+
+    const x = uuu * x1 + 3 * uu * t * cx1 + 3 * u * tt * cx2 + ttt * x2;
+    const y = uuu * y1 + 3 * uu * t * cy1 + 3 * u * tt * cy2 + ttt * y2;
+    return { x, y };
+  }, []);
+
+  // Helper: get connection endpoints for particles
+  const getConnectionEndpoints = useCallback((
+    fromLayer: number, fromNeuron: number, toLayer: number, toNeuron: number
+  ) => {
+    const layerSpacing = width / Math.max(layerSizes.length - 1, 1);
+    const x1 = margin.left + fromLayer * layerSpacing;
+    const x2 = margin.left + toLayer * layerSpacing;
+
+    const sourceSpacing = (height - 20) / (layerSizes[fromLayer] + 1);
+    const targetSpacing = (height - 20) / (layerSizes[toLayer] + 1);
+
+    const y1 = margin.top + (fromNeuron + 1) * sourceSpacing;
+    const y2 = margin.top + (toNeuron + 1) * targetSpacing;
+
+    const cpOffset = layerSpacing * 0.4;
+    return { x1, y1, x2, y2, cx1: x1 + cpOffset, cy1: y1, cx2: x2 - cpOffset, cy2: y2 };
+  }, [width, height, layerSizes, margin]);
+
+  // Calculate particle positions
+  const particlePositions = useMemo(() => {
+    return particles.map(p => {
+      const endpoints = getConnectionEndpoints(p.fromLayer, p.fromNeuron, p.toLayer, p.toNeuron);
+      const pos = getPointOnBezier(
+        endpoints.x1, endpoints.y1,
+        endpoints.cx1, endpoints.cy1,
+        endpoints.cx2, endpoints.cy2,
+        endpoints.x2, endpoints.y2,
+        p.progress
+      );
+      return { ...p, ...pos };
+    });
+  }, [particles, getConnectionEndpoints, getPointOnBezier]);
+
   return (
-    <div className="bg-gray-800/60 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 overflow-hidden">
+    <div className="bg-gray-800/60 backdrop-blur-sm rounded-lg p-2 border border-gray-700/50 overflow-hidden">
       {/* Educational visualization modal */}
       <AnimatePresence>
         {showEducational && (
@@ -371,12 +552,27 @@ export const NetworkVisualization = memo(function NetworkVisualization({
               <span>📚</span> Learn How It Works
             </motion.button>
           )}
-          {isAnimating && (
+          {backpropActive && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-xs text-orange-400 px-2 py-0.5 bg-orange-900/30 rounded flex items-center gap-1"
+            >
+              <motion.span
+                animate={{ rotate: 180 }}
+                transition={{ duration: 0.3 }}
+              >
+                ←
+              </motion.span>
+              Backprop
+            </motion.span>
+          )}
+          {isAnimating && !backpropActive && (
             <span className="text-xs text-cyan-400 animate-pulse px-2 py-0.5 bg-cyan-900/30 rounded">
               Forward Pass
             </span>
           )}
-          {hasActivations && !isAnimating && (
+          {hasActivations && !isAnimating && !backpropActive && (
             <span className="text-xs text-green-400 px-2 py-0.5 bg-green-900/30 rounded">
               Live
             </span>
@@ -466,15 +662,41 @@ export const NetworkVisualization = memo(function NetworkVisualization({
               const sourceAct = getActivation(conn.fromLayer, conn.fromNeuron);
               const signalStrength = sourceAct !== null ? Math.abs(sourceAct * conn.normalizedWeight) : 0;
 
-              const baseWidth = 0.5 + Math.abs(conn.normalizedWeight) * 1.5;
-              const strokeWidth = highlighted ? baseWidth + 2 : active ? baseWidth + signalStrength : baseWidth;
+              // Check if this connection is being backprop-updated
+              const isBackpropTarget = backpropActive && conn.toLayer === backpropLayer + 1;
+              const weightKey = `${conn.fromLayer}-${conn.fromNeuron}-${conn.toNeuron}`;
+              const weightDelta = weightDeltas.get(weightKey) ?? 0;
+              const hasWeightChange = Math.abs(weightDelta) > 0.001;
 
-              const color = conn.isPositive
+              const baseWidth = 0.5 + Math.abs(conn.normalizedWeight) * 1.5;
+              let strokeWidth = highlighted ? baseWidth + 2 : active ? baseWidth + signalStrength : baseWidth;
+
+              // Spring effect: temporarily increase width on weight change
+              if (ANIMATION_CONFIG.enableWeightSpring && hasWeightChange) {
+                strokeWidth += Math.min(Math.abs(weightDelta) * 10, 3);
+              }
+
+              // Backprop effect: flash connections during backprop
+              const backpropColor = isBackpropTarget ? '#f97316' : null; // Orange for backprop
+
+              const color = backpropColor ?? (conn.isPositive
                 ? highlighted || active ? '#22d3ee' : `rgba(34, 211, 238, ${0.2 + Math.abs(conn.normalizedWeight) * 0.4})`
-                : highlighted || active ? '#ec4899' : `rgba(236, 72, 153, ${0.2 + Math.abs(conn.normalizedWeight) * 0.4})`;
+                : highlighted || active ? '#ec4899' : `rgba(236, 72, 153, ${0.2 + Math.abs(conn.normalizedWeight) * 0.4})`);
 
               return (
                 <g key={i}>
+                  {/* Backprop glow */}
+                  {isBackpropTarget && (
+                    <motion.path
+                      d={conn.path}
+                      fill="none"
+                      stroke="#f97316"
+                      initial={{ strokeWidth: strokeWidth + 2, opacity: 0.6 }}
+                      animate={{ strokeWidth: strokeWidth + 6, opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      filter="url(#connectionGlow)"
+                    />
+                  )}
                   {(highlighted || (active && signalStrength > 0.2)) && (
                     <path
                       d={conn.path}
@@ -485,20 +707,67 @@ export const NetworkVisualization = memo(function NetworkVisualization({
                       filter="url(#connectionGlow)"
                     />
                   )}
-                  <path
-                    d={conn.path}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={strokeWidth}
-                    opacity={highlighted ? 1 : opacity * 0.8}
-                    className="cursor-pointer transition-opacity duration-150"
-                    onMouseEnter={(e) => handleConnectionHover(e, conn)}
-                    onMouseLeave={handleMouseLeave}
-                  />
+                  {/* Weight spring animation */}
+                  {ANIMATION_CONFIG.enableWeightSpring && hasWeightChange ? (
+                    <motion.path
+                      d={conn.path}
+                      fill="none"
+                      stroke={color}
+                      initial={{ strokeWidth: strokeWidth + Math.abs(weightDelta) * 5 }}
+                      animate={{ strokeWidth }}
+                      transition={{
+                        type: "spring",
+                        stiffness: ANIMATION_CONFIG.springStiffness,
+                        damping: ANIMATION_CONFIG.springDamping,
+                      }}
+                      opacity={highlighted ? 1 : opacity * 0.8}
+                      className="cursor-pointer"
+                      onMouseEnter={(e) => handleConnectionHover(e, conn)}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                  ) : (
+                    <path
+                      d={conn.path}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={strokeWidth}
+                      opacity={highlighted ? 1 : opacity * 0.8}
+                      className="cursor-pointer transition-opacity duration-150"
+                      onMouseEnter={(e) => handleConnectionHover(e, conn)}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                  )}
                 </g>
               );
             })}
           </g>
+
+          {/* Data Flow Particles */}
+          {ANIMATION_CONFIG.enableParticles && particlePositions.length > 0 && (
+            <g className="particles">
+              {particlePositions.map(p => {
+                // Color based on activation: blue→green→yellow
+                const hue = 200 - p.activation * 140; // 200 (blue) to 60 (yellow)
+                const color = `hsl(${hue}, 90%, 60%)`;
+
+                return (
+                  <motion.circle
+                    key={p.id}
+                    cx={p.x}
+                    cy={p.y}
+                    r={3 + p.activation * 2}
+                    fill={color}
+                    initial={{ opacity: 0, scale: 0 }}
+                    animate={{ opacity: 0.9, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0 }}
+                    style={{
+                      filter: 'blur(0.5px)',
+                    }}
+                  />
+                );
+              })}
+            </g>
+          )}
 
           {/* Neurons */}
           <g className="neurons">
@@ -507,6 +776,9 @@ export const NetworkVisualization = memo(function NetworkVisualization({
               const layerOpacity = getLayerOpacity(neuron.layer);
               const isHovered = hoveredNeuron?.layer === neuron.layer && hoveredNeuron?.neuron === neuron.neuron;
               const isInput = neuron.layer === 0;
+
+              // Check if this neuron is being backprop-updated
+              const isBackpropTarget = backpropActive && neuron.layer === backpropLayer;
 
               // Dynamic sizing
               const baseR = neuronRadius;
@@ -517,7 +789,11 @@ export const NetworkVisualization = memo(function NetworkVisualization({
               let strokeColor = '#6b7280';
               let glowFilter: string | undefined;
 
-              if (isInput && activation !== null && activation > 0.5) {
+              if (isBackpropTarget) {
+                // Orange glow during backprop
+                strokeColor = '#f97316';
+                glowFilter = 'url(#glowStrong)';
+              } else if (isInput && activation !== null && activation > 0.5) {
                 fill = 'url(#neuronInput)';
                 strokeColor = '#a78bfa';
                 glowFilter = 'url(#glowSoft)';
@@ -542,10 +818,51 @@ export const NetworkVisualization = memo(function NetworkVisualization({
               const fontSize = Math.max(r * 0.6, 7);
               const showText = r >= 10;
 
+              // Pulse animation for active neurons
+              const shouldPulse = ANIMATION_CONFIG.enablePulse && activation !== null && activation > 0.3 && !isAnimating;
+              const pulseScale = activation !== null ? 1 + activation * 0.15 : 1;
+
               return (
                 <g key={i} style={{ opacity: layerOpacity }} className="transition-opacity duration-200">
-                  {/* Glow ring for active neurons */}
-                  {(activation !== null && activation > 0.3) || isHovered ? (
+                  {/* Backprop wave ring */}
+                  {isBackpropTarget && (
+                    <motion.circle
+                      cx={neuron.x}
+                      cy={neuron.y}
+                      r={r + 4}
+                      fill="none"
+                      stroke="#f97316"
+                      strokeWidth={2}
+                      initial={{ r: r, opacity: 0.8 }}
+                      animate={{ r: r + 15, opacity: 0 }}
+                      transition={{ duration: 0.4 }}
+                      filter="url(#glowStrong)"
+                    />
+                  )}
+
+                  {/* Pulsing glow ring for active neurons */}
+                  {shouldPulse ? (
+                    <motion.circle
+                      cx={neuron.x}
+                      cy={neuron.y}
+                      r={r + 6}
+                      fill="none"
+                      stroke={strokeColor}
+                      strokeWidth={1.5}
+                      initial={{ opacity: activation! * 0.2, scale: 1 }}
+                      animate={{
+                        opacity: [activation! * 0.2, activation! * 0.5, activation! * 0.2],
+                        scale: [1, pulseScale, 1],
+                      }}
+                      transition={{
+                        duration: ANIMATION_CONFIG.pulseDuration + (1 - activation!) * 0.3,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                      }}
+                      filter="url(#glowStrong)"
+                      style={{ transformOrigin: `${neuron.x}px ${neuron.y}px` }}
+                    />
+                  ) : (activation !== null && activation > 0.3) || isHovered ? (
                     <circle
                       cx={neuron.x}
                       cy={neuron.y}
@@ -558,19 +875,43 @@ export const NetworkVisualization = memo(function NetworkVisualization({
                     />
                   ) : null}
 
-                  {/* Main neuron */}
-                  <circle
-                    cx={neuron.x}
-                    cy={neuron.y}
-                    r={r}
-                    fill={fill}
-                    stroke={strokeColor}
-                    strokeWidth={isHovered ? 2.5 : 1.5}
-                    filter={glowFilter}
-                    className="cursor-pointer transition-all duration-150"
-                    onMouseEnter={(e) => handleNeuronHover(e, neuron.layer, neuron.neuron, activation)}
-                    onMouseLeave={handleMouseLeave}
-                  />
+                  {/* Main neuron with pulse animation */}
+                  {shouldPulse ? (
+                    <motion.circle
+                      cx={neuron.x}
+                      cy={neuron.y}
+                      r={r}
+                      fill={fill}
+                      stroke={strokeColor}
+                      strokeWidth={isHovered ? 2.5 : 1.5}
+                      filter={glowFilter}
+                      className="cursor-pointer"
+                      animate={{
+                        scale: [1, pulseScale * 0.98, 1],
+                      }}
+                      transition={{
+                        duration: ANIMATION_CONFIG.pulseDuration + (1 - activation!) * 0.3,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                      }}
+                      style={{ transformOrigin: `${neuron.x}px ${neuron.y}px` }}
+                      onMouseEnter={(e) => handleNeuronHover(e as unknown as React.MouseEvent, neuron.layer, neuron.neuron, activation)}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                  ) : (
+                    <circle
+                      cx={neuron.x}
+                      cy={neuron.y}
+                      r={r}
+                      fill={fill}
+                      stroke={strokeColor}
+                      strokeWidth={isHovered ? 2.5 : 1.5}
+                      filter={glowFilter}
+                      className="cursor-pointer transition-all duration-150"
+                      onMouseEnter={(e) => handleNeuronHover(e, neuron.layer, neuron.neuron, activation)}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                  )}
 
                   {/* Inner highlight */}
                   <circle

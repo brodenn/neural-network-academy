@@ -8,8 +8,8 @@ interface OutputDisplayProps {
 export function OutputDisplay({ problem, prediction }: OutputDisplayProps) {
   if (!problem) {
     return (
-      <div className="bg-gray-800 rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-3">Output</h2>
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h2 className="text-sm font-semibold mb-2">Output</h2>
         <p className="text-gray-500 text-sm">Select a problem</p>
       </div>
     );
@@ -100,57 +100,85 @@ export function OutputDisplay({ problem, prediction }: OutputDisplayProps) {
     const ledOn = prediction?.led_state ?? false;
 
     return (
-      <div className="space-y-4">
-        {/* LED indicator for binary */}
+      <div className="space-y-3">
+        {/* Compact LED + Result row for binary */}
         {isBinary && (
-          <div className="flex justify-center">
-            <div
-              className={`
-                w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold
-                transition-all duration-300
-                ${
-                  ledOn
-                    ? 'bg-green-500 text-white shadow-lg shadow-green-500/50'
-                    : 'bg-gray-700 text-gray-500'
-                }
-              `}
-            >
-              {rounded}
+          <div className="flex items-center justify-between bg-gray-900/50 rounded-lg p-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`
+                  w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold
+                  transition-all duration-300
+                  ${
+                    ledOn
+                      ? 'bg-green-500 text-white shadow-md shadow-green-500/40'
+                      : 'bg-gray-700 text-gray-500'
+                  }
+                `}
+              >
+                {rounded}
+              </div>
+              <div className="flex flex-col">
+                <span className="text-xs text-gray-500">Output</span>
+                <span className={`font-bold ${ledOn ? 'text-green-400' : 'text-gray-400'}`}>
+                  {ledOn ? 'ON (1)' : 'OFF (0)'}
+                </span>
+              </div>
             </div>
+            {prediction && (
+              <div className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${
+                prediction.correct
+                  ? 'bg-green-600/20 text-green-400 ring-1 ring-green-500/30'
+                  : 'bg-red-600/20 text-red-400 ring-1 ring-red-500/30'
+              }`}>
+                {prediction.correct ? '✓ Correct' : '✗ Wrong'}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Value meter */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-400">Prediction</span>
-            <span className="font-mono text-cyan-400">{value.toFixed(4)}</span>
+        {/* Compact value comparison */}
+        <div className="bg-gray-900/50 rounded-lg p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-3">
+            {/* Prediction */}
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Prediction</div>
+              <div className="font-mono text-lg text-cyan-400">{value.toFixed(4)}</div>
+              <div className="h-2 bg-gray-700 rounded overflow-hidden mt-1">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-all"
+                  style={{ width: `${value * 100}%` }}
+                />
+              </div>
+            </div>
+            {/* Expected */}
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Expected</div>
+              <div className="font-mono text-lg text-gray-300">{expected.toFixed(4)}</div>
+              <div className="h-2 bg-gray-700 rounded overflow-hidden mt-1">
+                <div
+                  className="h-full bg-gray-500 transition-all"
+                  style={{ width: `${expected * 100}%` }}
+                />
+              </div>
+            </div>
           </div>
-          <div className="h-3 bg-gray-700 rounded overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-all"
-              style={{ width: `${value * 100}%` }}
-            />
+          {/* Difference indicator */}
+          <div className="flex justify-between items-center text-xs pt-2 border-t border-gray-700">
+            <span className="text-gray-500">Difference</span>
+            <span className={`font-mono ${Math.abs(value - expected) < 0.1 ? 'text-green-400' : 'text-yellow-400'}`}>
+              {Math.abs(value - expected).toFixed(4)}
+            </span>
           </div>
         </div>
 
-        {/* Expected value */}
-        <div className="space-y-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-400">Expected</span>
-            <span className="font-mono text-gray-300">{expected.toFixed(4)}</span>
-          </div>
-          <div className="h-2 bg-gray-700 rounded overflow-hidden">
-            <div
-              className="h-full bg-gray-500"
-              style={{ width: `${expected * 100}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Correctness indicator */}
-        {prediction && (
-          <div className="flex justify-between items-center pt-2 border-t border-gray-700">
+        {/* Non-binary result indicator */}
+        {!isBinary && prediction && (
+          <div className={`flex justify-between items-center p-2 rounded-lg ${
+            prediction.correct
+              ? 'bg-green-600/10 border border-green-500/20'
+              : 'bg-red-600/10 border border-red-500/20'
+          }`}>
             <span className="text-sm text-gray-400">Result</span>
             <span
               className={`text-sm font-semibold ${
@@ -166,8 +194,8 @@ export function OutputDisplay({ problem, prediction }: OutputDisplayProps) {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h2 className="text-lg font-semibold mb-3">
+    <div className="bg-gray-800 rounded-lg p-3">
+      <h2 className="text-sm font-semibold mb-2">
         Output
         <span className="text-sm font-normal text-gray-500 ml-2">
           ({problem.output_labels.join(', ')})

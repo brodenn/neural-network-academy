@@ -418,7 +418,8 @@ class NeuralNetwork:
         max_epochs: int = 100000,
         verbose: bool = True,
         callback: Callable[[int, float, float], None] | None = None,
-        stop_check: Callable[[], bool] | None = None
+        stop_check: Callable[[], bool] | None = None,
+        forced_learning_rate: float | None = None
     ) -> dict:
         """
         Adaptive training to ~100% accuracy (VG9).
@@ -440,6 +441,8 @@ class NeuralNetwork:
             verbose: Print progress to terminal
             callback: Optional callback(epoch, loss, accuracy) for updates
             stop_check: Optional callback that returns True to stop training early
+            forced_learning_rate: If set, forces this LR (disables adaptive adjustment)
+                                  Used for failure case demonstrations
 
         Returns:
             Dictionary with training results
@@ -454,9 +457,16 @@ class NeuralNetwork:
                 return target_accuracy()
             return target_accuracy
 
-        # Adaptive parameters
-        initial_lr = 1.0
-        lr = initial_lr
+        # Adaptive parameters (or forced for failure demonstrations)
+        if forced_learning_rate is not None:
+            initial_lr = forced_learning_rate
+            lr = forced_learning_rate
+            # Disable adaptation for failure cases
+            lr_is_forced = True
+        else:
+            initial_lr = 1.0
+            lr = initial_lr
+            lr_is_forced = False
         patience = 1000  # Epochs before adjusting
         lr_decay = 0.7
         min_lr = 0.01
@@ -511,8 +521,8 @@ class NeuralNetwork:
             else:
                 epochs_without_improvement += 1
 
-            # Adaptive learning rate adjustment
-            if epochs_without_improvement >= patience:
+            # Adaptive learning rate adjustment (disabled when LR is forced)
+            if epochs_without_improvement >= patience and not lr_is_forced:
                 if lr > min_lr:
                     lr *= lr_decay
                     epochs_without_improvement = 0
