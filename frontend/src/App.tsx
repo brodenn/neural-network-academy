@@ -14,6 +14,8 @@ import { KeyboardShortcuts } from './components/KeyboardShortcuts';
 import { ProblemInfoModal } from './components/ProblemInfoModal';
 import { ContextualTips } from './components/ContextualTips';
 import { LossLandscape3D } from './components/LossLandscape3D';
+import { LearningPathSelector } from './components/LearningPathSelector';
+import { PathDetailView } from './components/PathDetailView';
 import type { NetworkState, PredictionResult, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
 
 const API_URL = 'http://localhost:5000';
@@ -32,6 +34,11 @@ function App() {
   const [predictions, setPredictions] = useState<PredictionResult[]>([]);
   const [trainingInProgress, setTrainingInProgress] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // View state - toggle between learning paths, problems, and path detail
+  type ViewMode = 'paths' | 'problems' | 'path-detail';
+  const [currentView, setCurrentView] = useState<ViewMode>('problems');
+  const [currentPathId, setCurrentPathId] = useState<string | null>(null);
 
   // Clear API error after 5 seconds
   useEffect(() => {
@@ -200,6 +207,18 @@ function App() {
       console.error('Failed to select problem:', message);
       setApiError(`Failed to select problem: ${message}`);
     }
+  };
+
+  // Handle learning path selection - navigate to path detail view
+  const handlePathSelect = (pathId: string) => {
+    setCurrentPathId(pathId);
+    setCurrentView('path-detail');
+  };
+
+  // Handle exiting path detail view
+  const handleExitPath = () => {
+    setCurrentPathId(null);
+    setCurrentView('paths');
   };
 
   // Handle input changes
@@ -392,23 +411,64 @@ function App() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold">Neural Network Learning Lab</h1>
-            <ProblemSelector
-              problems={problems}
-              currentProblem={currentProblem}
-              onSelect={handleProblemSelect}
-              disabled={trainingInProgress}
-            />
-            {currentProblem && (
-              <button
-                onClick={() => setIsInfoModalOpen(true)}
-                className="p-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-cyan-400 hover:text-cyan-300 transition-colors"
-                title="Problem Info"
-                aria-label="Show problem information"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </button>
+
+            {/* View Navigation Tabs - hidden when in path-detail view */}
+            {currentView !== 'path-detail' && (
+              <div className="flex items-center bg-gray-800 rounded-lg p-1">
+                <div
+                  role="tablist"
+                  className="flex items-center"
+                >
+                  <div
+                    role="tab"
+                    aria-selected={currentView === 'paths'}
+                    onClick={() => setCurrentView('paths')}
+                    className={`px-3 py-1 rounded text-sm transition-colors cursor-pointer ${
+                      currentView === 'paths'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    Learning Paths
+                  </div>
+                  <div
+                    role="tab"
+                    aria-selected={currentView === 'problems'}
+                    onClick={() => setCurrentView('problems')}
+                    className={`px-3 py-1 rounded text-sm transition-colors cursor-pointer ${
+                      currentView === 'problems'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    All Problems
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Only show problem selector when in problems view */}
+            {currentView === 'problems' && (
+              <>
+                <ProblemSelector
+                  problems={problems}
+                  currentProblem={currentProblem}
+                  onSelect={handleProblemSelect}
+                  disabled={trainingInProgress}
+                />
+                {currentProblem && (
+                  <button
+                    onClick={() => setIsInfoModalOpen(true)}
+                    className="p-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-cyan-400 hover:text-cyan-300 transition-colors"
+                    title="Problem Info"
+                    aria-label="Show problem information"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </button>
+                )}
+              </>
             )}
           </div>
           <div className="flex items-center gap-2 text-xs">
@@ -427,9 +487,21 @@ function App() {
         </div>
       </header>
 
-      {/* Main content - 2 column layout */}
+      {/* Main content */}
       <main className="max-w-[1600px] w-full mx-auto flex-1 min-h-0">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 h-full">
+        {currentView === 'path-detail' && currentPathId ? (
+          <PathDetailView
+            pathId={currentPathId}
+            socket={socket}
+            trainingProgress={trainingProgress}
+            trainingComplete={trainingComplete}
+            lastPrediction={lastPrediction}
+            onExitPath={handleExitPath}
+          />
+        ) : currentView === 'paths' ? (
+          <LearningPathSelector onSelectPath={handlePathSelect} />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 h-full">
           {/* Left column: Training Controls + Input/Output + Loss Curve */}
           <div className="space-y-3 overflow-y-auto">
             {/* Input + Output row */}
@@ -551,6 +623,7 @@ function App() {
             </div>
           </div>
         </div>
+        )}
       </main>
 
       {/* Problem Info Modal */}

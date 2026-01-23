@@ -1,7 +1,7 @@
 {
-  "name": "frontend",
+  "name": "neural-network-academy",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,8 +15,11 @@
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
+    "@types/canvas-confetti": "^1.9.0",
+    "canvas-confetti": "^1.9.4",
     "framer-motion": "^12.27.1",
     "react": "^19.2.0",
+    "react-achievements": "^3.8.0",
     "react-dom": "^19.2.0",
     "react-is": "^19.2.3",
     "recharts": "^3.6.0",

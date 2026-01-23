@@ -568,6 +568,31 @@ def select_problem(problem_id: str):
         return jsonify({"error": str(e)}), 404
 
 
+# Learning Paths API
+@app.route('/api/paths', methods=['GET'])
+def get_learning_paths():
+    """Get all learning paths."""
+    from learning_paths import get_all_paths
+    try:
+        paths = get_all_paths()
+        return jsonify(paths)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/paths/<path_id>', methods=['GET'])
+def get_learning_path(path_id: str):
+    """Get specific learning path with detailed steps."""
+    from learning_paths import get_path
+    try:
+        path = get_path(path_id)
+        if path is None:
+            return jsonify({"error": "Path not found"}), 404
+        return jsonify(path)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/input', methods=['POST'])
 def set_input():
     """Set input values and get prediction (generic for all problems)."""

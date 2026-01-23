@@ -226,3 +226,69 @@ export function getInputConfigForProblem(problem: ProblemInfo): InputConfig {
       return { type: 'slider', labels: problem.input_labels, min: 0, max: 1, step: 0.01 };
   }
 }
+
+// Learning Path Types
+
+export type Difficulty = 'beginner' | 'intermediate' | 'advanced' | 'research';
+
+export interface PathStep {
+  stepNumber: number;
+  problemId: string;
+  title: string;
+  learningObjectives: string[];
+  requiredAccuracy?: number;
+  hints: string[];
+  unlocked: boolean;
+  completed: boolean;
+  completedAt?: Date;
+  attempts: number;
+  bestAccuracy: number;
+}
+
+export interface LearningPath {
+  id: string;
+  name: string;
+  description: string;
+  difficulty: Difficulty;
+  estimatedTime: string;
+  prerequisites: string[];
+  steps: number; // Total number of steps
+  badge: {
+    icon: string;
+    color: string;
+    title: string;
+  };
+}
+
+export interface UserProgress {
+  userId: string;
+  pathId: string;
+  currentStep: number;
+  stepsCompleted: number;
+  totalSteps: number;
+  startedAt: Date;
+  lastActiveAt: Date;
+}
+
+// Progress tracking types for localStorage persistence
+
+export interface StepProgressData {
+  stepNumber: number;
+  problemId: string;
+  unlocked: boolean;
+  completed: boolean;
+  completedAt?: string;
+  attempts: number;
+  bestAccuracy: number;
+}
+
+export interface PathProgressData {
+  pathId: string;
+  currentStep: number;
+  stepsCompleted: number;
+  startedAt: string;
+  lastActiveAt: string;
+  steps: StepProgressData[];
+}
+
+// Note: Types are exported inline, no need for additional re-exports
