@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { animated, useSpring, useTrail, config } from '@react-spring/web';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -145,11 +145,23 @@ const PulsingWarning = ({ color }: { color: string }) => {
   );
 };
 
+// Pre-computed particle positions (static for deterministic rendering)
+const PARTICLE_POSITIONS = [
+  { x: -35, y: 28 }, { x: 42, y: -15 }, { x: -12, y: -38 }, { x: 25, y: 32 },
+  { x: -45, y: -8 }, { x: 18, y: -42 }, { x: -28, y: 35 }, { x: 38, y: 12 },
+  { x: -8, y: -25 }, { x: 32, y: -35 }, { x: -38, y: 18 }, { x: 15, y: 42 },
+];
+
 // Explosion effect for NaN
 const ExplosionEffect = () => {
   const particles = useTrail(12, {
     from: { opacity: 1, scale: 0, x: 0, y: 0 },
-    to: { opacity: 0, scale: 2, x: Math.random() * 100 - 50, y: Math.random() * 100 - 50 },
+    to: (i: number) => ({
+      opacity: 0,
+      scale: 2,
+      x: PARTICLE_POSITIONS[i].x,
+      y: PARTICLE_POSITIONS[i].y
+    }),
     config: { tension: 200, friction: 20 },
   });
 
@@ -186,29 +198,35 @@ export const FailureDramatization = ({
   epoch,
 }: FailureDramatizationProps) => {
   const [showExplosion, setShowExplosion] = useState(false);
-  const [phase, setPhase] = useState<'intro' | 'watching' | 'lesson'>('intro');
+  const explosionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const info = FAILURE_INFO[failureType];
 
-  // Detect specific failure conditions
+  // Derive phase from epoch (no state needed)
+  const phase = epoch === 0 ? 'intro' : epoch < 50 ? 'watching' : 'lesson';
+
+  // Detect NaN explosion - using ref to track if we've already triggered
+  const prevLossRef = useRef<number>(loss);
   useEffect(() => {
     if (!isActive) return;
 
-    // NaN detection
-    if (Number.isNaN(loss) || loss > 1e6) {
+    // NaN/explosion detection - only trigger once per explosion event
+    const isExplosion = Number.isNaN(loss) || loss > 1e6;
+    const wasExplosion = Number.isNaN(prevLossRef.current) || prevLossRef.current > 1e6;
+
+    if (isExplosion && !wasExplosion) {
       setShowExplosion(true);
-      setTimeout(() => setShowExplosion(false), 2000);
+      explosionTimeoutRef.current = setTimeout(() => setShowExplosion(false), 2000);
     }
 
-    // Phase progression
-    if (epoch === 0) {
-      setPhase('intro');
-    } else if (epoch > 0 && epoch < 50) {
-      setPhase('watching');
-    } else if (epoch >= 50) {
-      setPhase('lesson');
-    }
-  }, [isActive, loss, epoch]);
+    prevLossRef.current = loss;
+
+    return () => {
+      if (explosionTimeoutRef.current) {
+        clearTimeout(explosionTimeoutRef.current);
+      }
+    };
+  }, [isActive, loss]);
 
   // Animation spring for content
   const contentSpring = useSpring({

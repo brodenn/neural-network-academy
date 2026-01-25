@@ -143,8 +143,9 @@ export const useLearningStore = create<LearningState>()(
       // Reset a path
       resetPath: (pathId) => {
         set(state => {
-          const { [pathId]: _, ...rest } = state.pathProgress;
-          return { pathProgress: rest };
+          const newProgress = { ...state.pathProgress };
+          delete newProgress[pathId];
+          return { pathProgress: newProgress };
         });
       },
 

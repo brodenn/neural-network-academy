@@ -269,7 +269,6 @@ const NetworkPreview = ({ layers }: { layers: LayerConfig[] }) => {
 // =============================================================================
 
 export const NetworkBuilder = ({
-  problemId: _problemId,
   inputSize,
   outputSize,
   requirements = {},

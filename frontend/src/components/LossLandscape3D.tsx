@@ -1,22 +1,7 @@
 import { Canvas, useFrame } from '@react-three/fiber';
-import type { ThreeElements } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
-
-// Declare Three.js JSX elements for TypeScript
-declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements {
-      mesh: ThreeElements['mesh'];
-      meshStandardMaterial: ThreeElements['meshStandardMaterial'];
-      sphereGeometry: ThreeElements['sphereGeometry'];
-      ambientLight: ThreeElements['ambientLight'];
-      directionalLight: ThreeElements['directionalLight'];
-      gridHelper: ThreeElements['gridHelper'];
-    }
-  }
-}
 
 interface LossLandscape3DProps {
   lossHistory: number[];

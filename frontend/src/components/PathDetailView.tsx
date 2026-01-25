@@ -232,7 +232,7 @@ export const PathDetailView = ({
   const [featureMaps, setFeatureMaps] = useState<CNNFeatureMaps | null>(null);
 
   // Interactive challenge state
-  const [_challengeCompleted, setChallengeCompleted] = useState(false);
+  const [, setChallengeCompleted] = useState(false);
   const [showTrainingAfterChallenge, setShowTrainingAfterChallenge] = useState(false);
 
   // Track previous training state to detect completion
@@ -582,7 +582,7 @@ export const PathDetailView = ({
     }
   };
 
-  const handlePredictionQuizAnswer = (correct: boolean, _selectedId: string) => {
+  const handlePredictionQuizAnswer = (correct: boolean) => {
     if (correct) {
       showToast('Correct prediction! 🎉', 'success');
     } else {

@@ -15,7 +15,6 @@ export const TrainingScrubber = memo(function TrainingScrubber({
   lossHistory,
   accuracyHistory,
   totalEpochs,
-  currentEpoch: _currentEpoch, // Used for display sync
   onScrubToEpoch,
   isPlaying = false,
   onPlayPause,

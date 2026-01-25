@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLearningStore, type Achievement } from '../stores/learningStore';
 
@@ -134,20 +134,27 @@ const AchievementNotification = ({
 // Provider component
 export const AchievementProvider = ({ children }: { children: ReactNode }) => {
   const [pendingNotifications, setPendingNotifications] = useState<Achievement[]>([]);
-  const [previousAchievements, setPreviousAchievements] = useState<string[]>([]);
+  const previousAchievementsRef = useRef<string[]>([]);
+  const isInitializedRef = useRef(false);
 
   const achievements = useLearningStore(state => state.getAchievements());
   const unlockedAchievements = useLearningStore(state => state.unlockedAchievements);
 
   // Subscribe to achievement changes
   useEffect(() => {
+    // Skip initial load - only notify on subsequent changes
+    if (!isInitializedRef.current) {
+      previousAchievementsRef.current = unlockedAchievements;
+      isInitializedRef.current = true;
+      return;
+    }
+
     // Find newly unlocked achievements
     const newlyUnlocked = unlockedAchievements.filter(
-      id => !previousAchievements.includes(id)
+      id => !previousAchievementsRef.current.includes(id)
     );
 
-    if (newlyUnlocked.length > 0 && previousAchievements.length > 0) {
-      // Only show notifications after initial load (previousAchievements has been set)
+    if (newlyUnlocked.length > 0) {
       const newAchievements = newlyUnlocked
         .map(id => achievements.find(a => a.id === id))
         .filter((a): a is Achievement => a !== undefined);
@@ -157,8 +164,8 @@ export const AchievementProvider = ({ children }: { children: ReactNode }) => {
       }
     }
 
-    setPreviousAchievements(unlockedAchievements);
-  }, [unlockedAchievements, achievements, previousAchievements]);
+    previousAchievementsRef.current = unlockedAchievements;
+  }, [unlockedAchievements, achievements]);
 
   const showAchievement = useCallback((achievement: Achievement) => {
     setPendingNotifications(prev => [...prev, achievement]);

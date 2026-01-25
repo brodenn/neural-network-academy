@@ -10,16 +10,10 @@ interface InputPanelProps {
 }
 
 export function InputPanel({ problem, values, onChange, disabled = false }: InputPanelProps) {
-  if (!problem) {
-    return (
-      <div className="bg-gray-800 rounded-lg p-3">
-        <h2 className="text-sm font-semibold mb-2">Input</h2>
-        <p className="text-gray-500 text-sm">Select a problem to configure inputs</p>
-      </div>
-    );
-  }
-
-  const config = getInputConfigForProblem(problem);
+  // All hooks must be called unconditionally at the top
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [brushValue, setBrushValue] = useState(1.0);
+  const [eraseMode, setEraseMode] = useState(false);
 
   const handleValueChange = useCallback(
     (index: number, newValue: number) => {
@@ -40,6 +34,18 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
     },
     [values, onChange]
   );
+
+  // Early return AFTER all hooks are called
+  if (!problem) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-3">
+        <h2 className="text-sm font-semibold mb-2">Input</h2>
+        <p className="text-gray-500 text-sm">Select a problem to configure inputs</p>
+      </div>
+    );
+  }
+
+  const config = getInputConfigForProblem(problem);
 
   // Generate truth table for binary problems
   const getTruthTable = () => {
@@ -278,16 +284,12 @@ export function InputPanel({ problem, values, onChange, disabled = false }: Inpu
     ? (values as number[][])
     : Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
 
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [brushValue, setBrushValue] = useState(1.0);
-  const [eraseMode, setEraseMode] = useState(false);
-
-  const handleGridCellChange = useCallback((row: number, col: number, value: number) => {
+  const handleGridCellChange = (row: number, col: number, value: number) => {
     const newGrid = gridValues.map((r, ri) =>
       ri === row ? r.map((c, ci) => (ci === col ? value : c)) : [...r]
     );
     onChange(newGrid);
-  }, [gridValues, onChange]);
+  };
 
   const handleMouseDown = (row: number, col: number, e: React.MouseEvent) => {
     if (disabled) return;
