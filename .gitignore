@@ -33,3 +33,7 @@ test-results/
 .pytest_cache/
 .coverage
 htmlcov/
+__screenshots__/
+
+# Claude Code
+.claude/
