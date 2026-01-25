@@ -2,10 +2,8 @@ import { test, expect } from '@playwright/test';
 import {
   waitForConnection,
   selectProblem,
-  startStaticTraining,
   stopTraining,
   getCurrentAccuracy,
-  getCurrentEpoch,
 } from './fixtures/test-helpers';
 
 test.describe('Failure Cases (Level 5)', () => {

@@ -15,6 +15,13 @@ const ANIMATION_CONFIG = {
   springDamping: 20,
 };
 
+// Layout constants (moved outside component to avoid recreation on every render)
+const VIEWBOX_WIDTH = 800;
+const VIEWBOX_HEIGHT = 380;
+const MARGIN = { top: 35, right: 50, bottom: 45, left: 50 };
+const CONTENT_WIDTH = VIEWBOX_WIDTH - MARGIN.left - MARGIN.right;
+const CONTENT_HEIGHT = VIEWBOX_HEIGHT - MARGIN.top - MARGIN.bottom;
+
 interface NetworkVisualizationProps {
   layerSizes: number[];
   weights: LayerWeights[];
@@ -43,12 +50,6 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   trainingInProgress = false,
   currentEpoch = 0,
 }: NetworkVisualizationProps) {
-  // Use viewBox for responsive scaling
-  const viewBoxWidth = 800;
-  const viewBoxHeight = 380;
-  const margin = { top: 35, right: 50, bottom: 45, left: 50 };
-  const width = viewBoxWidth - margin.left - margin.right;
-  const height = viewBoxHeight - margin.top - margin.bottom;
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [hoveredNeuron, setHoveredNeuron] = useState<{
@@ -211,29 +212,29 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   // Calculate neuron radius based on layer count
   const neuronRadius = useMemo(() => {
     const maxNeurons = Math.max(...layerSizes);
-    const availableHeight = height - 40;
+    const availableHeight = CONTENT_HEIGHT - 40;
     const maxRadius = Math.min(availableHeight / (maxNeurons * 2.5), 20);
     return Math.max(maxRadius, 8);
-  }, [layerSizes, height]);
+  }, [layerSizes]);
 
   // Calculate positions for neurons
   const neurons = useMemo(() => {
     const result: { x: number; y: number; layer: number; neuron: number }[] = [];
-    const layerSpacing = width / Math.max(layerSizes.length - 1, 1);
+    const layerSpacing = CONTENT_WIDTH / Math.max(layerSizes.length - 1, 1);
 
     layerSizes.forEach((size, layerIndex) => {
-      const x = margin.left + layerIndex * layerSpacing;
-      const availableHeight = height - 20;
+      const x = MARGIN.left + layerIndex * layerSpacing;
+      const availableHeight = CONTENT_HEIGHT - 20;
       const neuronSpacing = availableHeight / (size + 1);
 
       for (let neuronIndex = 0; neuronIndex < size; neuronIndex++) {
-        const y = margin.top + (neuronIndex + 1) * neuronSpacing;
+        const y = MARGIN.top + (neuronIndex + 1) * neuronSpacing;
         result.push({ x, y, layer: layerIndex, neuron: neuronIndex });
       }
     });
 
     return result;
-  }, [layerSizes, width, height, margin]);
+  }, [layerSizes]);
 
   // Calculate connections with Bezier curves
   const connections = useMemo(() => {
@@ -250,17 +251,17 @@ export const NetworkVisualization = memo(function NetworkVisualization({
 
     if (weights.length === 0) return result;
 
-    const layerSpacing = width / Math.max(layerSizes.length - 1, 1);
+    const layerSpacing = CONTENT_WIDTH / Math.max(layerSizes.length - 1, 1);
 
     weights.forEach((layer, layerIndex) => {
       if (!layer || !layer.weights) return;
       if (!layer.input_size || !layer.output_size) return;
 
-      const x1 = margin.left + layerIndex * layerSpacing;
-      const x2 = margin.left + (layerIndex + 1) * layerSpacing;
+      const x1 = MARGIN.left + layerIndex * layerSpacing;
+      const x2 = MARGIN.left + (layerIndex + 1) * layerSpacing;
 
-      const sourceSpacing = (height - 20) / (layer.input_size + 1);
-      const targetSpacing = (height - 20) / (layer.output_size + 1);
+      const sourceSpacing = (CONTENT_HEIGHT - 20) / (layer.input_size + 1);
+      const targetSpacing = (CONTENT_HEIGHT - 20) / (layer.output_size + 1);
 
       // Skip if spacing would produce NaN
       if (!isFinite(sourceSpacing) || !isFinite(targetSpacing)) return;
@@ -269,10 +270,10 @@ export const NetworkVisualization = memo(function NetworkVisualization({
 
       layer.weights.forEach((sourceWeights, sourceIndex) => {
         if (!sourceWeights) return;
-        const y1 = margin.top + (sourceIndex + 1) * sourceSpacing;
+        const y1 = MARGIN.top + (sourceIndex + 1) * sourceSpacing;
 
         sourceWeights.forEach((weight, targetIndex) => {
-          const y2 = margin.top + (targetIndex + 1) * targetSpacing;
+          const y2 = MARGIN.top + (targetIndex + 1) * targetSpacing;
 
           // Skip invalid coordinates
           if (!isFinite(y1) || !isFinite(y2)) return;
@@ -296,7 +297,7 @@ export const NetworkVisualization = memo(function NetworkVisualization({
     });
 
     return result;
-  }, [weights, layerSizes, width, height, margin]);
+  }, [weights, layerSizes]);
 
   // Get activation value
   const getActivation = useCallback(
@@ -440,19 +441,19 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   const getConnectionEndpoints = useCallback((
     fromLayer: number, fromNeuron: number, toLayer: number, toNeuron: number
   ) => {
-    const layerSpacing = width / Math.max(layerSizes.length - 1, 1);
-    const x1 = margin.left + fromLayer * layerSpacing;
-    const x2 = margin.left + toLayer * layerSpacing;
+    const layerSpacing = CONTENT_WIDTH / Math.max(layerSizes.length - 1, 1);
+    const x1 = MARGIN.left + fromLayer * layerSpacing;
+    const x2 = MARGIN.left + toLayer * layerSpacing;
 
-    const sourceSpacing = (height - 20) / (layerSizes[fromLayer] + 1);
-    const targetSpacing = (height - 20) / (layerSizes[toLayer] + 1);
+    const sourceSpacing = (CONTENT_HEIGHT - 20) / (layerSizes[fromLayer] + 1);
+    const targetSpacing = (CONTENT_HEIGHT - 20) / (layerSizes[toLayer] + 1);
 
-    const y1 = margin.top + (fromNeuron + 1) * sourceSpacing;
-    const y2 = margin.top + (toNeuron + 1) * targetSpacing;
+    const y1 = MARGIN.top + (fromNeuron + 1) * sourceSpacing;
+    const y2 = MARGIN.top + (toNeuron + 1) * targetSpacing;
 
     const cpOffset = layerSpacing * 0.4;
     return { x1, y1, x2, y2, cx1: x1 + cpOffset, cy1: y1, cx2: x2 - cpOffset, cy2: y2 };
-  }, [width, height, layerSizes, margin]);
+  }, [layerSizes]);
 
   // Calculate particle positions
   const particlePositions = useMemo(() => {
@@ -583,7 +584,7 @@ export const NetworkVisualization = memo(function NetworkVisualization({
       <div className="w-full aspect-video min-h-[280px]">
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`}
+          viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
           className="w-full h-full"
           preserveAspectRatio="xMidYMid meet"
         >
@@ -640,8 +641,8 @@ export const NetworkVisualization = memo(function NetworkVisualization({
           <rect
             x="0"
             y="0"
-            width={viewBoxWidth}
-            height={viewBoxHeight}
+            width={VIEWBOX_WIDTH}
+            height={VIEWBOX_HEIGHT}
             fill="url(#bgGradient)"
             rx="8"
           />
@@ -944,8 +945,8 @@ export const NetworkVisualization = memo(function NetworkVisualization({
           {/* Layer labels */}
           <g className="labels">
             {layerSizes.map((size, layerIndex) => {
-              const layerSpacing = width / Math.max(layerSizes.length - 1, 1);
-              const x = margin.left + layerIndex * layerSpacing;
+              const layerSpacing = CONTENT_WIDTH / Math.max(layerSizes.length - 1, 1);
+              const x = MARGIN.left + layerIndex * layerSpacing;
               const label =
                 layerIndex === 0
                   ? 'Input'
@@ -958,7 +959,7 @@ export const NetworkVisualization = memo(function NetworkVisualization({
                   {/* Bottom label */}
                   <rect
                     x={x - 28}
-                    y={viewBoxHeight - 32}
+                    y={VIEWBOX_HEIGHT - 32}
                     width={56}
                     height={20}
                     rx={4}
@@ -968,7 +969,7 @@ export const NetworkVisualization = memo(function NetworkVisualization({
                   />
                   <text
                     x={x}
-                    y={viewBoxHeight - 18}
+                    y={VIEWBOX_HEIGHT - 18}
                     textAnchor="middle"
                     fontSize="11"
                     fill="#9ca3af"
@@ -978,7 +979,7 @@ export const NetworkVisualization = memo(function NetworkVisualization({
                   </text>
 
                   {/* Top neuron count */}
-                  <text x={x} y={margin.top - 12} textAnchor="middle" fontSize="9" fill="#6b7280">
+                  <text x={x} y={MARGIN.top - 12} textAnchor="middle" fontSize="9" fill="#6b7280">
                     {size}n
                   </text>
                 </g>

@@ -2,10 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   waitForConnection,
   selectProblem,
-  startStaticTraining,
-  startAdaptiveTraining,
   stopTraining,
-  resetNetwork,
   getCurrentAccuracy,
   getCurrentEpoch,
 } from './fixtures/test-helpers';
