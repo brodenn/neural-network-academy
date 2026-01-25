@@ -8,8 +8,26 @@ interface PathProgressBarProps {
 }
 
 export const PathProgressBar = ({ steps, currentStep, onStepClick }: PathProgressBarProps) => {
+  // Filter out any invalid steps (with undefined/null stepNumber)
+  const validSteps = (steps || []).filter(
+    (s): s is StepProgressData => s != null && typeof s.stepNumber === 'number'
+  );
+
+  // Don't render if no valid steps
+  if (validSteps.length === 0) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-4">
+        <div className="text-gray-500 text-sm">Loading steps...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-800 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-500">Click circles to navigate steps</span>
+        <span className="text-xs text-gray-500">{validSteps.filter(s => s.completed).length}/{validSteps.length} complete</span>
+      </div>
       <div className="flex items-center justify-between relative">
         {/* Connection line */}
         <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-gray-700 -translate-y-1/2 z-0" />
@@ -19,12 +37,12 @@ export const PathProgressBar = ({ steps, currentStep, onStepClick }: PathProgres
           className="absolute top-1/2 left-0 h-0.5 bg-green-500 -translate-y-1/2 z-0"
           initial={{ width: 0 }}
           animate={{
-            width: `${(steps.filter(s => s.completed).length / Math.max(steps.length - 1, 1)) * 100}%`
+            width: `${(validSteps.filter(s => s.completed).length / Math.max(validSteps.length - 1, 1)) * 100}%`
           }}
           transition={{ duration: 0.5, ease: 'easeOut' }}
         />
 
-        {steps.map((step) => {
+        {validSteps.map((step) => {
           const isLocked = !step.unlocked;
           const isCompleted = step.completed;
           const isCurrent = step.stepNumber === currentStep;
@@ -74,7 +92,7 @@ export const PathProgressBar = ({ steps, currentStep, onStepClick }: PathProgres
 
       {/* Step labels */}
       <div className="flex items-center justify-between mt-2">
-        {steps.map((step) => {
+        {validSteps.map((step) => {
           const isLocked = !step.unlocked;
           const isCompleted = step.completed;
           const isCurrent = step.stepNumber === currentStep;

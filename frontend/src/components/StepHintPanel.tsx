@@ -10,8 +10,8 @@ export const StepHintPanel = ({ hints, attempts }: StepHintPanelProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [revealedHints, setRevealedHints] = useState<Set<number>>(new Set());
 
-  // Calculate how many hints are available (1 hint per 2 attempts, starting at 0)
-  const availableHints = Math.min(Math.floor(attempts / 2) + 1, hints.length);
+  // All hints are available immediately - let users choose when to reveal them
+  const availableHints = hints.length;
 
   const revealHint = (index: number) => {
     if (index < availableHints) {
@@ -35,7 +35,7 @@ export const StepHintPanel = ({ hints, attempts }: StepHintPanelProps) => {
           </svg>
           <span className="font-medium text-gray-200">Hints</span>
           <span className="text-xs text-gray-500">
-            ({availableHints}/{hints.length} available)
+            ({revealedHints.size}/{hints.length} revealed)
           </span>
         </div>
         <motion.svg
@@ -61,39 +61,28 @@ export const StepHintPanel = ({ hints, attempts }: StepHintPanelProps) => {
           >
             <div className="px-4 pb-3 space-y-2">
               {hints.map((hint, index) => {
-                const isAvailable = index < availableHints;
                 const isRevealed = revealedHints.has(index);
 
                 return (
                   <div
                     key={index}
                     className={`rounded p-3 ${
-                      isAvailable
-                        ? isRevealed
-                          ? 'bg-yellow-900/30 border border-yellow-800/50'
-                          : 'bg-gray-700/50 cursor-pointer hover:bg-gray-700'
-                        : 'bg-gray-900/50 opacity-50'
+                      isRevealed
+                        ? 'bg-yellow-900/30 border border-yellow-800/50'
+                        : 'bg-gray-700/50 cursor-pointer hover:bg-gray-700'
                     }`}
-                    onClick={() => isAvailable && !isRevealed && revealHint(index)}
+                    onClick={() => !isRevealed && revealHint(index)}
                   >
                     <div className="flex items-start gap-2">
-                      <span className={`text-sm font-medium ${
-                        isAvailable ? 'text-yellow-400' : 'text-gray-600'
-                      }`}>
+                      <span className="text-sm font-medium text-yellow-400">
                         #{index + 1}
                       </span>
-                      {isAvailable ? (
-                        isRevealed ? (
-                          <p className="text-sm text-gray-300">{hint}</p>
-                        ) : (
-                          <button className="text-sm text-blue-400 hover:text-blue-300">
-                            Click to reveal hint
-                          </button>
-                        )
+                      {isRevealed ? (
+                        <p className="text-sm text-gray-300">{hint}</p>
                       ) : (
-                        <span className="text-sm text-gray-600">
-                          Train {(index + 1) * 2 - attempts} more time(s) to unlock
-                        </span>
+                        <button className="text-sm text-blue-400 hover:text-blue-300">
+                          Click to reveal hint
+                        </button>
                       )}
                     </div>
                   </div>

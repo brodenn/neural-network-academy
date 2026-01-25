@@ -88,6 +88,41 @@ export const PathStepCard = ({ step, progress, isCurrentStep }: PathStepCardProp
         )}
       </div>
 
+      {/* Instructions */}
+      {!isLocked && isCurrentStep && !isCompleted && (
+        <div className="mb-3 bg-blue-900/30 border border-blue-700 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <h4 className="text-sm font-semibold text-blue-300 mb-1">What to do:</h4>
+              <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
+                <li>Review the learning objectives below</li>
+                <li>Use the input controls to test different values</li>
+                <li>Click "Start Learning" to train the network</li>
+                <li>Reach {requiredAccuracy === 0 ? 'any accuracy' : `${formatAccuracy(requiredAccuracy)} accuracy`} to complete this step</li>
+                <li>Next step will unlock automatically!</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Message */}
+      {!isLocked && isCompleted && (
+        <div className="mb-3 bg-green-900/30 border border-green-700 rounded-lg p-3">
+          <div className="flex items-center gap-2">
+            <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm font-medium text-green-300">
+              Step completed! {step.stepNumber < 7 ? 'Move to the next step below.' : 'You finished the path!'}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Learning Objectives */}
       {!isLocked && (
         <div className="mb-3">

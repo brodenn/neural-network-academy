@@ -96,6 +96,35 @@ export function usePathProgress(): UsePathProgressReturn {
     // Check if progress already exists
     const existing = getPathProgress(pathId);
     if (existing) {
+      // Validate and repair existing data - ensure all steps have proper stepNumber
+      const validSteps = existing.steps.filter(s => typeof s.stepNumber === 'number');
+
+      // If data is corrupted (missing stepNumbers) or step count doesn't match, rebuild from config
+      if (validSteps.length !== steps.length) {
+        // Merge existing progress with new step config
+        const repairedSteps = steps.map((stepConfig, index) => {
+          // Try to find existing progress for this step
+          const existingStep = existing.steps.find(s => s.stepNumber === stepConfig.stepNumber || s.problemId === stepConfig.problemId);
+          return {
+            stepNumber: stepConfig.stepNumber,
+            problemId: stepConfig.problemId,
+            unlocked: existingStep?.unlocked ?? (index === 0),
+            completed: existingStep?.completed ?? false,
+            completedAt: existingStep?.completedAt,
+            attempts: existingStep?.attempts ?? 0,
+            bestAccuracy: existingStep?.bestAccuracy ?? 0
+          };
+        });
+
+        const repaired: PathProgressData = {
+          ...existing,
+          steps: repairedSteps,
+          lastActiveAt: new Date().toISOString()
+        };
+        savePathProgress(pathId, repaired);
+        return repaired;
+      }
+
       // Update lastActiveAt and return existing
       const updated = {
         ...existing,

@@ -82,7 +82,7 @@ LEARNING_PATHS = {
         steps=[
             PathStep(
                 step_number=1,
-                problem_id='and',
+                problem_id='and_gate',
                 title='AND Gate - Single Neuron Capability',
                 learning_objectives=[
                     'Understand what a single neuron can learn',
@@ -96,7 +96,7 @@ LEARNING_PATHS = {
             ),
             PathStep(
                 step_number=2,
-                problem_id='or',
+                problem_id='or_gate',
                 title='OR Gate - Linear Classification',
                 learning_objectives=[
                     'Recognize another linearly separable problem',
@@ -110,7 +110,7 @@ LEARNING_PATHS = {
             ),
             PathStep(
                 step_number=3,
-                problem_id='not',
+                problem_id='not_gate',
                 title='NOT Gate - Simple Transformation',
                 learning_objectives=[
                     'See how neurons invert signals',
@@ -124,61 +124,60 @@ LEARNING_PATHS = {
             ),
             PathStep(
                 step_number=4,
-                problem_id='fail_xor_no_hidden',
-                title='FAIL: XOR with No Hidden Layer',
+                problem_id='nand_gate',
+                title='NAND Gate - The Universal Gate',
                 learning_objectives=[
-                    'Understand why XOR is not linearly separable',
-                    'See the necessity of hidden layers',
-                    'Learn about problem complexity'
+                    'Learn about NAND as a universal gate',
+                    'See another linearly separable problem',
+                    'Understand that NAND can build ANY logic circuit'
                 ],
-                required_accuracy=0.0,  # Expected to fail
                 hints=[
-                    'This problem is DESIGNED to fail!',
-                    'No single line can separate XOR classes',
-                    'You need hidden layers to solve XOR'
+                    'NAND is called "universal" - you can build ANY logic from it!',
+                    'Still solvable with a single neuron like AND/OR'
                 ]
             ),
             PathStep(
                 step_number=5,
                 problem_id='xor',
-                title='XOR - Hidden Layers to the Rescue',
+                title='XOR Gate - Why Hidden Layers Matter',
                 learning_objectives=[
-                    'Solve XOR with hidden layers',
-                    'Understand how hidden layers create non-linear boundaries',
-                    'Learn about network architecture importance'
+                    'Understand that XOR is NOT linearly separable',
+                    'Learn why hidden layers are necessary',
+                    'See how architecture affects what networks can learn'
                 ],
                 hints=[
-                    'The default [2, 4, 1] architecture should work well',
+                    'XOR cannot be solved with a single neuron!',
+                    'The default [2, 4, 1] architecture adds hidden layers',
                     'Hidden layers allow the network to learn non-linear patterns'
                 ]
             ),
             PathStep(
                 step_number=6,
                 problem_id='xnor',
-                title='XNOR - Applying the Concept',
+                title='XNOR Gate - Mastering Hidden Layers',
                 learning_objectives=[
-                    'Apply hidden layer knowledge to similar problem',
-                    'Recognize pattern similarity to XOR',
+                    'Apply hidden layer knowledge to XNOR',
+                    'Recognize XNOR is similar to XOR',
                     'Build confidence with non-linear problems'
                 ],
                 hints=[
-                    'XNOR is the opposite of XOR',
-                    'Same architecture as XOR should work'
+                    'XNOR is the opposite of XOR (1 when inputs match)',
+                    'Same architecture as XOR should work well'
                 ]
             ),
             PathStep(
                 step_number=7,
-                problem_id='two_blobs',
-                title='Two Blobs - Visualizing Decision Boundaries',
+                problem_id='xor_5bit',
+                title='5-Bit Parity - Scaling Up',
                 learning_objectives=[
-                    'See decision boundaries in 2D space',
-                    'Understand how networks separate classes',
-                    'Learn to interpret visualizations'
+                    'Apply XOR concept to 5 inputs instead of 2',
+                    'See how networks scale to more complex problems',
+                    'Learn about the parity problem'
                 ],
                 hints=[
-                    'Use the decision boundary visualization',
-                    'Try different input points to see the boundary',
-                    'The network learns a curved separation line'
+                    'Parity checks if the sum of bits is odd or even',
+                    'This is XOR extended to 5 inputs!',
+                    'Deeper networks help with this complexity'
                 ]
             )
         ]
@@ -438,8 +437,8 @@ LEARNING_PATHS = {
             ),
             PathStep(
                 step_number=3,
-                problem_id='gesture',
-                title='Gesture Classification - Temporal CNNs',
+                problem_id='patterns',
+                title='Signal Pattern Classification',
                 learning_objectives=[
                     'Apply CNNs to sequential data',
                     'Understand gesture recognition',
@@ -622,5 +621,5 @@ def get_path(path_id: str) -> Dict:
 
     path = LEARNING_PATHS[path_id]
     result = path.to_dict()
-    result['stepDetails'] = path.get_step_details()
+    result['steps'] = path.get_step_details()  # Override count with detailed array
     return result
