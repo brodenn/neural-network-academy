@@ -5,7 +5,7 @@ Defines structured curricula guiding learners through the 32 problems
 with clear progression, prerequisites, and educational scaffolding.
 """
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass
 from typing import List, Dict, Optional, Literal
 
 # Step types for different interactive challenges

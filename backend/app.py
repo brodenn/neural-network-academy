@@ -7,9 +7,6 @@ Learn neural network concepts from basic logic gates to CNNs.
 Run with: python app.py
 """
 
-import os
-import sys
-import json
 import threading
 import time
 from flask import Flask, jsonify, request
@@ -17,9 +14,9 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 import numpy as np
 
-from neural_network import NeuralNetwork, generate_xor_data
+from neural_network import NeuralNetwork
 from cnn_network import CNNNetwork
-from problems import PROBLEMS, get_problem, list_problems
+from problems import get_problem, list_problems
 
 
 # -----------------------------------------------------------------------------
@@ -850,12 +847,6 @@ def update_target_accuracy():
         system_state["target_accuracy"] = new_target
 
     print(f"\nTarget accuracy changed: {old_target*100:.0f}% -> {new_target*100:.0f}%")
-
-    # Notify frontend
-    socketio.emit('target_changed', {
-        "old_target": old_target,
-        "new_target": new_target
-    })
 
     return jsonify({
         "success": True,

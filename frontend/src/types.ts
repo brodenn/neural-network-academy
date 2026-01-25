@@ -106,8 +106,6 @@ export interface ProblemInfo {
   locked_architecture: boolean;  // Cannot change architecture
   forced_weight_init?: WeightInit;  // Force specific init type
   forced_learning_rate?: number;  // Force specific LR
-  // Optional/legacy fields
-  embedded_context?: string;  // Deprecated, kept for backwards compatibility
   sample_count?: number;
   input_size?: number | [number, number, number];
   output_size?: number;
@@ -276,16 +274,6 @@ export interface LearningPath {
     color: string;
     title: string;
   };
-}
-
-export interface UserProgress {
-  userId: string;
-  pathId: string;
-  currentStep: number;
-  stepsCompleted: number;
-  totalSteps: number;
-  startedAt: Date;
-  lastActiveAt: Date;
 }
 
 // Progress tracking types for localStorage persistence
