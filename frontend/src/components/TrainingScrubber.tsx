@@ -19,16 +19,12 @@ export const TrainingScrubber = memo(function TrainingScrubber({
   isPlaying = false,
   onPlayPause,
 }: TrainingScrubberProps) {
-  const [scrubPosition, setScrubPosition] = useState(totalEpochs);
-  const [isDragging, setIsDragging] = useState(false);
+  const [dragPosition, setDragPosition] = useState<number | null>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
 
-  // Update scrub position when training progresses (unless actively scrubbing)
-  useEffect(() => {
-    if (!isDragging) {
-      setScrubPosition(totalEpochs);
-    }
-  }, [totalEpochs, isDragging]);
+  // Derive effective scrub position: use drag position when dragging, otherwise follow totalEpochs
+  const isDragging = dragPosition !== null;
+  const scrubPosition = isDragging ? dragPosition : totalEpochs;
 
   // Handle scrubbing
   const handleScrub = useCallback((clientX: number) => {
@@ -40,27 +36,26 @@ export const TrainingScrubber = memo(function TrainingScrubber({
     const ratio = Math.max(0, Math.min(1, x / width));
     const epoch = Math.round(ratio * totalEpochs);
 
-    setScrubPosition(epoch);
+    setDragPosition(epoch);
     onScrubToEpoch?.(epoch);
   }, [totalEpochs, onScrubToEpoch]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    setIsDragging(true);
     handleScrub(e.clientX);
   }, [handleScrub]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (isDragging) {
+    if (dragPosition !== null) {
       handleScrub(e.clientX);
     }
-  }, [isDragging, handleScrub]);
+  }, [dragPosition, handleScrub]);
 
   const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+    setDragPosition(null);
   }, []);
 
   useEffect(() => {
-    if (isDragging) {
+    if (dragPosition !== null) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       return () => {
@@ -68,7 +63,7 @@ export const TrainingScrubber = memo(function TrainingScrubber({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [dragPosition, handleMouseMove, handleMouseUp]);
 
   // Calculate displayed values at scrub position
   const getValueAtPosition = useCallback((history: number[], position: number) => {

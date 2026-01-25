@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { GPIOState, PredictionResult, TrainingProgress, TrainingResult, SystemStatus } from '../types';
 
@@ -116,6 +116,7 @@ export function useSocket(): UseSocketReturn {
     trainingError,
     toggleButton,
     setButtons,
+    // eslint-disable-next-line react-hooks/refs -- Intentional: socket ref is stable after mount
     socket: socketRef.current,
   };
 }
