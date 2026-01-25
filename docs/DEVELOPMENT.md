@@ -72,7 +72,6 @@ npm run lint                     # ESLint check
 │  │     ├── Level 5: Failure cases (educational)                 │
 │  │     ├── Level 6: Multi-class classification                  │
 │  │     └── Level 7: CNNs (shapes, digits)                       │
-│  └── gpio_simulator.py - Virtual Raspberry Pi GPIO              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -110,10 +109,6 @@ npm run lint                     # ESLint check
 - Shape Detection (circles, squares, triangles), Digit Recognition (0-9 on 8×8 grids)
 
 Each problem includes educational metadata: `difficulty`, `concept`, `learning_goal`, `tips`, and for failure cases: `failure_reason`, `fix_suggestion`.
-
-### GPIO Simulation (gpio_simulator.py)
-- `GPIOSimulator`: Virtual buttons/LED for development
-- `GPIOHardware`: Real Raspberry Pi 5 implementation (requires lgpio)
 
 ## API Endpoints
 

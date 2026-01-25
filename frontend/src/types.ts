@@ -57,13 +57,6 @@ export interface TrainingResult {
   restarts?: number;
 }
 
-export interface GPIOState {
-  buttons: number[];
-  led: boolean;
-  button_pins: number[];
-  led_pin: number;
-}
-
 export interface PredictionResult {
   inputs: number[] | number[][];  // 1D for dense, 2D grid for CNN
   prediction: number | number[];  // Single value or array for multi-class
@@ -76,17 +69,6 @@ export interface PredictionResult {
   output_labels?: string[];
   network_type?: NetworkType;
   feature_maps?: CNNFeatureMaps;
-}
-
-export interface SystemStatus {
-  training_complete: boolean;
-  training_in_progress: boolean;
-  current_epoch: number;
-  current_loss: number;
-  current_accuracy: number;
-  prediction_count: number;
-  current_problem?: string;
-  network_type?: NetworkType;
 }
 
 export interface TrainingData {

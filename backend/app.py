@@ -19,7 +19,6 @@ import numpy as np
 
 from neural_network import NeuralNetwork, generate_xor_data
 from cnn_network import CNNNetwork
-from gpio_simulator import GPIOSimulator
 from problems import PROBLEMS, get_problem, list_problems
 
 
@@ -52,8 +51,6 @@ nn = NeuralNetwork(
     output_activation=current_problem.info.output_activation
 )
 
-# GPIO simulator (for XOR problem backward compatibility)
-gpio = GPIOSimulator(button_pins=[17, 27, 22, 23, 24], led_pin=18)
 
 # Training data (generated from current problem)
 X_train, y_train = current_problem.generate_data()
@@ -154,9 +151,6 @@ def make_prediction(inputs: list[float] | list[list[list[float]]]) -> dict:
         else:
             is_correct = abs(prediction_value - expected) < 0.1
 
-    # Update LED (for XOR backward compatibility)
-    gpio.set_led(led_on)
-
     # Terminal output (G6 requirement)
     with state_lock:
         system_state["prediction_count"] += 1
@@ -187,21 +181,6 @@ def make_prediction(inputs: list[float] | list[list[list[float]]]) -> dict:
         result["feature_maps"] = nn.get_feature_maps(X)
 
     return result
-
-
-def on_button_change(button_states: list[int]):
-    """Callback when buttons change - make prediction and emit to frontend (XOR compatibility)."""
-    # Convert button states to float inputs
-    inputs = [float(s) for s in button_states]
-    result = make_prediction(inputs)
-
-    # Emit to all connected clients
-    socketio.emit('prediction', result)
-    socketio.emit('gpio_state', gpio.get_state())
-
-
-# Register callback
-gpio.on_button_change(on_button_change)
 
 
 # -----------------------------------------------------------------------------
@@ -1094,63 +1073,13 @@ def reset_network():
 
 
 # -----------------------------------------------------------------------------
-# GPIO Routes
-# -----------------------------------------------------------------------------
-
-@app.route('/api/gpio', methods=['GET'])
-def get_gpio_state():
-    """Get current GPIO state (buttons and LED)."""
-    return jsonify(gpio.get_state())
-
-
-@app.route('/api/gpio/buttons', methods=['POST'])
-def set_buttons():
-    """Set button states (for simulation)."""
-    data = request.json
-    states = data.get('states', [0, 0, 0, 0, 0])
-
-    gpio.set_buttons(states)
-
-    return jsonify({
-        "success": True,
-        "buttons": gpio.read_buttons()
-    })
-
-
-@app.route('/api/gpio/button/<int:index>', methods=['POST'])
-def toggle_button(index: int):
-    """Toggle a single button."""
-    new_state = gpio.toggle_button(index)
-
-    return jsonify({
-        "success": True,
-        "index": index,
-        "state": new_state,
-        "buttons": gpio.read_buttons()
-    })
-
-
-@app.route('/api/gpio/reset', methods=['POST'])
-def reset_gpio():
-    """Reset all GPIO to default state."""
-    gpio.reset()
-
-    return jsonify({
-        "success": True,
-        "state": gpio.get_state()
-    })
-
-
-# -----------------------------------------------------------------------------
 # Prediction Routes
 # -----------------------------------------------------------------------------
 
 @app.route('/api/predict', methods=['GET'])
 def get_prediction():
-    """Get prediction for current button state."""
-    button_states = gpio.read_buttons()
-    result = make_prediction(button_states)
-
+    """Get prediction for current input state."""
+    result = make_prediction(current_inputs)
     return jsonify(result)
 
 
@@ -1296,29 +1225,12 @@ def handle_connect():
         'forced_weight_init': info.forced_weight_init,
         'forced_learning_rate': info.forced_learning_rate,
     })
-    emit('gpio_state', gpio.get_state())
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
     """Handle client disconnection."""
     print(f"Client disconnected")
-
-
-@socketio.on('toggle_button')
-def handle_toggle_button(data):
-    """Handle button toggle from frontend."""
-    index = data.get('index', 0)
-    gpio.toggle_button(index)
-    emit('gpio_state', gpio.get_state(), broadcast=True)
-
-
-@socketio.on('set_buttons')
-def handle_set_buttons(data):
-    """Handle button state change from frontend."""
-    states = data.get('states', [0, 0, 0, 0, 0])
-    gpio.set_buttons(states)
-    emit('gpio_state', gpio.get_state(), broadcast=True)
 
 
 @socketio.on('set_inputs')
