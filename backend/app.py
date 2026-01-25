@@ -358,26 +358,6 @@ def get_json_body() -> tuple[dict | None, str | None]:
 
 
 # -----------------------------------------------------------------------------
-# API Routes
-# -----------------------------------------------------------------------------
-
-@app.route('/api/status', methods=['GET'])
-def get_status():
-    """Get system status."""
-    with state_lock:
-        return jsonify({
-            "training_complete": system_state["training_complete"],
-            "training_in_progress": system_state["training_in_progress"],
-            "current_epoch": system_state["current_epoch"],
-            "current_loss": system_state["current_loss"],
-            "current_accuracy": system_state["current_accuracy"],
-            "prediction_count": system_state["prediction_count"],
-            "current_problem": current_problem_id,
-            "network_type": current_network_type
-        })
-
-
-# -----------------------------------------------------------------------------
 # Problem Routes
 # -----------------------------------------------------------------------------
 
@@ -385,53 +365,6 @@ def get_status():
 def get_problems():
     """List all available problems."""
     return jsonify(list_problems())
-
-
-@app.route('/api/problems/<problem_id>', methods=['GET'])
-def get_problem_info(problem_id: str):
-    """Get details for a specific problem."""
-    try:
-        problem = get_problem(problem_id)
-        info = problem.info
-        X, y = problem.generate_data()
-
-        result = {
-            'id': info.id,
-            'name': info.name,
-            'description': info.description,
-            'category': info.category,
-            'default_architecture': info.default_architecture,
-            'input_labels': info.input_labels,
-            'output_labels': info.output_labels,
-            'output_activation': info.output_activation,
-            'network_type': info.network_type,
-            'input_shape': info.input_shape,
-            'sample_count': len(X),
-            'output_size': y.shape[1],
-            # Educational fields
-            'difficulty': info.difficulty,
-            'concept': info.concept,
-            'learning_goal': info.learning_goal,
-            'tips': info.tips,
-            # Level and failure case fields
-            'level': info.level,
-            'is_failure_case': info.is_failure_case,
-            'failure_reason': info.failure_reason,
-            'fix_suggestion': info.fix_suggestion,
-            'locked_architecture': info.locked_architecture,
-            'forced_weight_init': info.forced_weight_init,
-            'forced_learning_rate': info.forced_learning_rate,
-        }
-
-        # Input size depends on network type
-        if info.network_type == 'cnn':
-            result['input_size'] = info.input_shape
-        else:
-            result['input_size'] = X.shape[1]
-
-        return jsonify(result)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
 
 
 @app.route('/api/problems/<problem_id>/select', methods=['POST'])
@@ -586,33 +519,6 @@ def reset_learning_path(path_id: str):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/input', methods=['POST'])
-def set_input():
-    """Set input values and get prediction (generic for all problems)."""
-    global current_inputs
-
-    # Validate request body
-    data, err = get_json_body()
-    if err:
-        return jsonify({"error": err}), 400
-
-    inputs = data.get('inputs')
-    if inputs is None:
-        return jsonify({"error": "inputs is required"}), 400
-
-    # Validate inputs is a list
-    if not isinstance(inputs, list):
-        return jsonify({"error": "inputs must be an array"}), 400
-
-    # Make prediction
-    result = make_prediction(inputs)
-
-    # Emit to all clients
-    socketio.emit('prediction', result)
-
-    return jsonify(result)
 
 
 @app.route('/api/network', methods=['GET'])
@@ -934,111 +840,6 @@ def train_step():
     })
 
 
-@app.route('/api/network/export/c', methods=['GET'])
-def export_to_c():
-    """Export trained network as C code for embedded systems."""
-    info = current_problem.info
-
-    # Generate C header file
-    c_code = f'''/**
- * Neural Network - Auto-generated from Neural Network Learning Lab
- * Problem: {info.name}
- * Architecture: {nn.layer_sizes}
- *
- * Usage:
- *   float inputs[{nn.layer_sizes[0]}] = {{...}};
- *   float output[{nn.layer_sizes[-1]}];
- *   nn_predict(inputs, output);
- */
-
-#ifndef NEURAL_NETWORK_H
-#define NEURAL_NETWORK_H
-
-#include <math.h>
-
-#define NN_NUM_LAYERS {nn.num_layers}
-#define NN_INPUT_SIZE {nn.layer_sizes[0]}
-#define NN_OUTPUT_SIZE {nn.layer_sizes[-1]}
-
-// Layer sizes
-static const int nn_layer_sizes[NN_NUM_LAYERS] = {{{', '.join(map(str, nn.layer_sizes))}}};
-
-'''
-
-    # Add weights for each layer
-    for i, (w, b) in enumerate(zip(nn.weights, nn.biases)):
-        c_code += f'// Layer {i} -> {i+1} weights [{w.shape[0]}x{w.shape[1]}]\n'
-        c_code += f'static const float nn_weights_{i}[{w.shape[0]}][{w.shape[1]}] = {{\n'
-        for row in w:
-            c_code += '  {' + ', '.join(f'{v:.6f}f' for v in row) + '},\n'
-        c_code += '};\n\n'
-
-        c_code += f'// Layer {i} -> {i+1} biases [{b.shape[1]}]\n'
-        c_code += f'static const float nn_biases_{i}[{b.shape[1]}] = {{'
-        c_code += ', '.join(f'{v:.6f}f' for v in b[0])
-        c_code += '}};\n\n'
-
-    # Add activation functions
-    c_code += '''// Activation functions
-static inline float nn_relu(float x) {
-    return x > 0 ? x : 0;
-}
-
-static inline float nn_sigmoid(float x) {
-    return 1.0f / (1.0f + expf(-x));
-}
-
-'''
-
-    # Add predict function
-    c_code += f'''// Forward pass - predict output from input
-void nn_predict(const float* input, float* output) {{
-    float layer_in[{max(nn.layer_sizes)}];
-    float layer_out[{max(nn.layer_sizes)}];
-
-    // Copy input
-    for (int i = 0; i < NN_INPUT_SIZE; i++) {{
-        layer_in[i] = input[i];
-    }}
-
-'''
-
-    # Generate layer-by-layer computation
-    for i in range(len(nn.weights)):
-        in_size = nn.layer_sizes[i]
-        out_size = nn.layer_sizes[i + 1]
-        is_output = (i == len(nn.weights) - 1)
-
-        c_code += f'    // Layer {i} -> {i+1}\n'
-        c_code += f'    for (int j = 0; j < {out_size}; j++) {{\n'
-        c_code += f'        float sum = nn_biases_{i}[j];\n'
-        c_code += f'        for (int k = 0; k < {in_size}; k++) {{\n'
-        c_code += f'            sum += layer_in[k] * nn_weights_{i}[k][j];\n'
-        c_code += f'        }}\n'
-
-        if is_output:
-            c_code += f'        layer_out[j] = nn_sigmoid(sum);  // Output activation\n'
-        else:
-            c_code += f'        layer_out[j] = nn_relu(sum);  // Hidden activation\n'
-
-        c_code += f'    }}\n'
-        c_code += f'    for (int i = 0; i < {out_size}; i++) layer_in[i] = layer_out[i];\n\n'
-
-    c_code += f'''    // Copy to output
-    for (int i = 0; i < NN_OUTPUT_SIZE; i++) {{
-        output[i] = layer_out[i];
-    }}
-}}
-
-#endif // NEURAL_NETWORK_H
-'''
-
-    return c_code, 200, {
-        'Content-Type': 'text/plain',
-        'Content-Disposition': f'attachment; filename="neural_network_{current_problem_id}.h"'
-    }
-
-
 @app.route('/api/network/reset', methods=['POST'])
 def reset_network():
     """Reset network weights and training state."""
@@ -1061,49 +862,6 @@ def reset_network():
     })
 
     return jsonify({"success": True})
-
-
-# -----------------------------------------------------------------------------
-# Prediction Routes
-# -----------------------------------------------------------------------------
-
-@app.route('/api/predict', methods=['GET'])
-def get_prediction():
-    """Get prediction for current input state."""
-    result = make_prediction(current_inputs)
-    return jsonify(result)
-
-
-@app.route('/api/predict', methods=['POST'])
-def predict_custom():
-    """Make prediction for custom input."""
-    data = request.json
-    inputs = data.get('inputs', [])
-
-    expected_len = len(current_problem.info.input_labels)
-    if len(inputs) != expected_len:
-        return jsonify({"error": f"Input must have {expected_len} values for {current_problem.info.name}"}), 400
-
-    result = make_prediction(inputs)
-    return jsonify(result)
-
-
-# -----------------------------------------------------------------------------
-# Training Data Routes
-# -----------------------------------------------------------------------------
-
-@app.route('/api/training-data', methods=['GET'])
-def get_training_data():
-    """Get current problem's training data."""
-    info = current_problem.info
-    return jsonify({
-        "inputs": X_train.tolist(),
-        "labels": y_train.tolist(),
-        "num_samples": len(X_train),
-        "problem_id": current_problem_id,
-        "input_labels": info.input_labels,
-        "output_labels": info.output_labels
-    })
 
 
 @app.route('/api/decision-boundary', methods=['GET'])
