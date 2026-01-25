@@ -26,32 +26,38 @@ Open http://localhost:5173 in your browser.
 
 ## 🆕 What's New
 
-**Learning Paths Feature (Latest):**
-- 🎓 Guided step-by-step learning journeys
+**Interactive Learning Challenges (Latest):**
+- 🎮 **Build Challenges** - Drag-and-drop network architecture builder
+- 🤔 **Prediction Quizzes** - Predict outcomes before training to build intuition
+- 🐛 **Debug Challenges** - Diagnose broken configurations from symptoms
+- 🎯 **New "Interactive Fundamentals" Path** - Learn by DOING, not just watching
+
+**Learning Paths Feature:**
+- 🎓 7 guided learning paths with step-by-step journeys
 - 📊 Real-time progress tracking with localStorage persistence
 - 💡 Progressive hint system (unlocks based on attempts)
-- 🎯 Auto-completion detection and step unlocking
 - 🎉 Celebration modal with animated badges and confetti
-- 🔄 Resume from where you left off (progress persists across sessions)
+- 🔄 Resume from where you left off
 
-**Technical Implementation:**
-- Custom `usePathProgress` React hook for state management
-- 6 new specialized components (PathDetailView, PathProgressBar, etc.)
-- Integration with existing training system via WebSocket events
-- Zero breaking changes - all 82 existing tests still passing
+**Enhanced Training Experience:**
+- 📢 Training Narrator - Real-time insights during training
+- 💥 Failure Dramatization - Visual effects for failure cases
+- 📈 Enhanced Loss Curve - Tooltips and annotations
+- 🏆 Achievement System - Earn badges for milestones
 
 ---
 
 ## ✨ Key Features
 
-- 🎓 **Guided Learning Paths** - Step-by-step journeys with progress tracking
+- 🎮 **Interactive Challenges** - Build networks, predict outcomes, debug problems
+- 🎓 **7 Learning Paths** - Guided journeys from beginner to advanced
 - 🧠 **32 Progressive Problems** - From basic gates to CNNs (7 difficulty levels)
 - 🎨 **Interactive Visualization** - Real-time network diagram, decision boundaries, 3D loss landscapes
 - 🎯 **Adaptive Training** - Auto-adjusts learning rate to reach ~99% accuracy
 - 💡 **Failure Case Education** - Learn from intentional failures (bad LR, zero init, vanishing gradients)
-- 📊 **Live Metrics** - WebSocket updates for loss, accuracy, epoch progress
+- 📊 **Live Training Insights** - Real-time narrator explains what's happening
 - ⌨️ **Keyboard Shortcuts** - Space (train), Escape (stop), R (reset), S (step)
-- 🏆 **Achievement Badges** - Unlock rewards for completing paths
+- 🏆 **Achievement System** - Badges, milestones, progress tracking
 - 📱 **Responsive Design** - Works on desktop and mobile
 - 🔧 **Pure NumPy** - No ML frameworks, educational from first principles
 - 🎮 **Embedded Support** - Runs on Raspberry Pi with GPIO
@@ -64,23 +70,42 @@ The platform now features **guided learning paths** that provide structured, ste
 
 ### Available Paths
 
+**Interactive Fundamentals** (Beginner) ⭐ NEW
+- 7 interactive steps: build, predict, debug, train
+- Learn by DOING - not just watching
+- Drag-and-drop architecture builder
+- Prediction quizzes and debug challenges
+- Badge: 🎮 "Active Learner"
+
 **Foundations** (Beginner)
-- 6 steps covering single neurons and XOR
+- 7 steps covering single neurons and XOR
 - Learn linear separability and why hidden layers matter
-- Estimated time: 30-45 minutes
-- Badge: 🎯 "Foundation Builder"
+- Badge: 🏆 "Foundation Scholar"
 
-**Decision Boundaries** (Intermediate)
-- 5 steps exploring 2D classification problems
-- Visualize how networks learn complex boundaries
-- Estimated time: 45-60 minutes
-- Badge: 🌊 "Boundary Explorer"
+**Deep Learning Basics** (Intermediate)
+- 10 steps on training, initialization, hyperparameters
+- Includes failure case demonstrations
+- Badge: 🧠 "Neural Navigator"
 
-**Failure Analysis** (Advanced)
-- 6 steps teaching common pitfalls
+**Multi-Class Mastery** (Intermediate)
+- 4 steps exploring multi-class classification
+- Softmax, one-hot encoding, probability outputs
+- Badge: 🎨 "Classifier Champion"
+
+**Pitfall Prevention** (Intermediate)
+- 6 steps teaching what NOT to do
 - Learn from intentional failures
-- Estimated time: 60-90 minutes
-- Badge: 🔥 "Failure Master"
+- Badge: 🛡️ "Error Expert"
+
+**Convolutional Vision** (Advanced)
+- 3 steps on CNNs for image data
+- Shape detection and digit recognition
+- Badge: 👁️ "Vision Virtuoso"
+
+**Research Frontier** (Advanced)
+- 4 steps tackling challenging problems
+- Spirals, donuts, complex surfaces
+- Badge: 🚀 "Research Pioneer"
 
 ### Screenshots
 
@@ -313,12 +338,10 @@ npm run test:ui              # Interactive test UI
 ```
 
 **Test Coverage:**
-- ✅ 82/109 tests passing (75%)
-- ✅ Accessibility tests (10/10)
-- ✅ Problem selector (12/12)
-- ✅ Training flows (11/14)
-- ✅ Animations (22/27)
-- ✅ Network visualization (9/12)
+- ✅ Backend: 358 tests passing
+- ✅ Frontend E2E: Interactive challenges (14/14)
+- ✅ Frontend E2E: New features (9/9)
+- ✅ Frontend E2E: Learning paths verified
 
 ---
 

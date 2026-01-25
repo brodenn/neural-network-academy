@@ -120,7 +120,7 @@ export function WeightHistogram({ weights, trainingInProgress }: WeightHistogram
                 borderRadius: '8px',
                 fontSize: '12px',
               }}
-              formatter={(value: number) => [value, 'Count']}
+              formatter={(value) => [value ?? 0, 'Count']}
               labelFormatter={(label) => `Weight: ${Number(label).toFixed(3)}`}
             />
             <ReferenceLine x={0} stroke="#EF4444" strokeDasharray="3 3" />

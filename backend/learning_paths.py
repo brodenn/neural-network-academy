@@ -5,8 +5,39 @@ Defines structured curricula guiding learners through the 32 problems
 with clear progression, prerequisites, and educational scaffolding.
 """
 
-from dataclasses import dataclass, asdict
-from typing import List, Dict
+from dataclasses import dataclass, asdict, field
+from typing import List, Dict, Optional, Literal
+
+# Step types for different interactive challenges
+StepType = Literal['training', 'build_challenge', 'prediction_quiz', 'debug_challenge', 'tuning_challenge']
+
+@dataclass
+class BuildChallengeData:
+    """Data for build_challenge step type"""
+    min_layers: int = 0
+    max_layers: int = 5
+    min_hidden_neurons: int = 1
+    max_hidden_neurons: int = 16
+    must_have_hidden: bool = False
+    success_message: str = "Great architecture!"
+
+@dataclass
+class PredictionQuizData:
+    """Data for prediction_quiz step type"""
+    quiz_id: str  # References PREDICTION_QUIZZES in frontend
+    show_result_after: bool = True  # Show training result after quiz
+
+@dataclass
+class DebugChallengeData:
+    """Data for debug_challenge step type"""
+    challenge_id: str  # References DEBUG_CHALLENGES in frontend
+
+@dataclass
+class TuningChallengeData:
+    """Data for tuning_challenge step type - find optimal hyperparameters"""
+    parameter: str  # 'learning_rate', 'epochs', 'architecture'
+    target_loss: float = 0.1
+    max_attempts: int = 5
 
 @dataclass
 class PathStep:
@@ -16,6 +47,13 @@ class PathStep:
     learning_objectives: List[str]
     required_accuracy: float = 0.95
     hints: List[str] = None
+    # New: step type for interactive challenges
+    step_type: StepType = 'training'
+    # Challenge-specific data
+    build_challenge: Optional[BuildChallengeData] = None
+    prediction_quiz: Optional[PredictionQuizData] = None
+    debug_challenge: Optional[DebugChallengeData] = None
+    tuning_challenge: Optional[TuningChallengeData] = None
 
     def __post_init__(self):
         if self.hints is None:
@@ -53,17 +91,44 @@ class LearningPath:
 
     def get_step_details(self) -> List[Dict]:
         """Get detailed information about all steps"""
-        return [
-            {
+        result = []
+        for step in self.steps:
+            step_dict = {
                 'stepNumber': step.step_number,
                 'problemId': step.problem_id,
                 'title': step.title,
                 'learningObjectives': step.learning_objectives,
                 'requiredAccuracy': step.required_accuracy,
-                'hints': step.hints
+                'hints': step.hints,
+                'stepType': step.step_type,
             }
-            for step in self.steps
-        ]
+            # Add challenge-specific data if present
+            if step.build_challenge:
+                step_dict['buildChallenge'] = {
+                    'minLayers': step.build_challenge.min_layers,
+                    'maxLayers': step.build_challenge.max_layers,
+                    'minHiddenNeurons': step.build_challenge.min_hidden_neurons,
+                    'maxHiddenNeurons': step.build_challenge.max_hidden_neurons,
+                    'mustHaveHidden': step.build_challenge.must_have_hidden,
+                    'successMessage': step.build_challenge.success_message,
+                }
+            if step.prediction_quiz:
+                step_dict['predictionQuiz'] = {
+                    'quizId': step.prediction_quiz.quiz_id,
+                    'showResultAfter': step.prediction_quiz.show_result_after,
+                }
+            if step.debug_challenge:
+                step_dict['debugChallenge'] = {
+                    'challengeId': step.debug_challenge.challenge_id,
+                }
+            if step.tuning_challenge:
+                step_dict['tuningChallenge'] = {
+                    'parameter': step.tuning_challenge.parameter,
+                    'targetLoss': step.tuning_challenge.target_loss,
+                    'maxAttempts': step.tuning_challenge.max_attempts,
+                }
+            result.append(step_dict)
+        return result
 
 
 # Define all learning paths
@@ -188,7 +253,7 @@ LEARNING_PATHS = {
         name='Deep Learning Basics',
         description='Master training, initialization, and hyperparameters',
         difficulty='intermediate',
-        estimated_time='3-4 hours',
+        estimated_time='4-5 hours',
         badge_icon='🧠',
         badge_title='Neural Navigator',
         badge_color='#8B5CF6',
@@ -259,8 +324,23 @@ LEARNING_PATHS = {
             ),
             PathStep(
                 step_number=5,
+                problem_id='linear',
+                title='Linear Regression - Continuous Outputs',
+                learning_objectives=[
+                    'Introduction to regression problems',
+                    'Learn about continuous vs discrete outputs',
+                    'Understand linear function approximation'
+                ],
+                hints=[
+                    'The network outputs a continuous value, not a class',
+                    'This is the simplest regression problem',
+                    'Linear relationships are easiest to learn'
+                ]
+            ),
+            PathStep(
+                step_number=6,
                 problem_id='sine_wave',
-                title='Sine Wave - Regression Basics',
+                title='Sine Wave - Non-linear Regression',
                 learning_objectives=[
                     'Learn about regression vs classification',
                     'Understand continuous outputs',
@@ -273,7 +353,7 @@ LEARNING_PATHS = {
                 ]
             ),
             PathStep(
-                step_number=6,
+                step_number=7,
                 problem_id='polynomial',
                 title='Polynomial - Non-linear Regression',
                 learning_objectives=[
@@ -288,7 +368,22 @@ LEARNING_PATHS = {
                 ]
             ),
             PathStep(
-                step_number=7,
+                step_number=8,
+                problem_id='two_blobs',
+                title='Two Blobs - 2D Classification Intro',
+                learning_objectives=[
+                    'Introduction to 2D decision boundaries',
+                    'Visualize how networks separate data in 2D',
+                    'Build intuition before complex shapes'
+                ],
+                hints=[
+                    'Two clusters that are easy to separate',
+                    'Watch the decision boundary form',
+                    'This is a warm-up for harder 2D problems'
+                ]
+            ),
+            PathStep(
+                step_number=9,
                 problem_id='moons',
                 title='Moons - Complex Boundaries',
                 learning_objectives=[
@@ -303,7 +398,7 @@ LEARNING_PATHS = {
                 ]
             ),
             PathStep(
-                step_number=8,
+                step_number=10,
                 problem_id='circle',
                 title='Circle - Radial Patterns',
                 learning_objectives=[
@@ -602,6 +697,165 @@ LEARNING_PATHS = {
                     'This is close to real-world problems',
                     'CNNs excel at image classification',
                     'Feature extraction is key'
+                ]
+            )
+        ]
+    ),
+
+    # NEW: Interactive path with build challenges, prediction quizzes, and debug challenges
+    'interactive-fundamentals': LearningPath(
+        id='interactive-fundamentals',
+        name='Interactive Fundamentals',
+        description='Learn by DOING - build networks, predict outcomes, and debug problems',
+        difficulty='beginner',
+        estimated_time='1-2 hours',
+        badge_icon='🎮',
+        badge_title='Active Learner',
+        badge_color='#10B981',
+        prerequisites=[],
+        steps=[
+            # Step 1: Predict what happens with XOR and no hidden layer
+            PathStep(
+                step_number=1,
+                problem_id='xor',
+                title='Prediction: Can XOR Learn Without Hidden Layers?',
+                learning_objectives=[
+                    'Think critically about network architecture',
+                    'Understand linear separability before seeing it',
+                    'Build intuition through prediction'
+                ],
+                step_type='prediction_quiz',
+                prediction_quiz=PredictionQuizData(
+                    quiz_id='xor_no_hidden',
+                    show_result_after=True
+                ),
+                hints=[
+                    'Think about what a single neuron can compute',
+                    'Consider: can you draw ONE line to separate XOR outputs?'
+                ]
+            ),
+            # Step 2: Build the right architecture for AND gate
+            PathStep(
+                step_number=2,
+                problem_id='and_gate',
+                title='Build Challenge: AND Gate Architecture',
+                learning_objectives=[
+                    'Understand that AND is linearly separable',
+                    'Learn that simple problems need simple networks',
+                    'Practice building network architectures'
+                ],
+                step_type='build_challenge',
+                build_challenge=BuildChallengeData(
+                    min_layers=0,
+                    max_layers=2,
+                    min_hidden_neurons=0,
+                    max_hidden_neurons=8,
+                    must_have_hidden=False,
+                    success_message='Perfect! AND only needs a single neuron!'
+                ),
+                hints=[
+                    'AND is one of the simplest problems',
+                    'Think: do you NEED hidden layers for this?'
+                ]
+            ),
+            # Step 3: Build architecture for XOR
+            PathStep(
+                step_number=3,
+                problem_id='xor',
+                title='Build Challenge: XOR Architecture',
+                learning_objectives=[
+                    'Apply the lesson from prediction quiz',
+                    'Understand why XOR needs hidden layers',
+                    'Build a working XOR network'
+                ],
+                step_type='build_challenge',
+                build_challenge=BuildChallengeData(
+                    min_layers=1,
+                    max_layers=3,
+                    min_hidden_neurons=2,
+                    max_hidden_neurons=8,
+                    must_have_hidden=True,
+                    success_message='Excellent! XOR requires hidden layers to work!'
+                ),
+                hints=[
+                    'Remember: XOR is NOT linearly separable',
+                    'You need at least one hidden layer',
+                    'Try 2-4 neurons in the hidden layer'
+                ]
+            ),
+            # Step 4: Debug challenge - find the zero init bug
+            PathStep(
+                step_number=4,
+                problem_id='xor',
+                title='Debug Challenge: Why Won\'t It Learn?',
+                learning_objectives=[
+                    'Diagnose common neural network bugs',
+                    'Understand the symmetry problem',
+                    'Learn about weight initialization'
+                ],
+                step_type='debug_challenge',
+                debug_challenge=DebugChallengeData(
+                    challenge_id='zero_init_bug'
+                ),
+                hints=[
+                    'Look at the weight initialization setting',
+                    'What happens when all weights start the same?'
+                ]
+            ),
+            # Step 5: Predict what happens with high learning rate
+            PathStep(
+                step_number=5,
+                problem_id='xor',
+                title='Prediction: Learning Rate = 10?',
+                learning_objectives=[
+                    'Understand learning rate effects',
+                    'Predict gradient descent behavior',
+                    'Learn about stability vs speed tradeoff'
+                ],
+                step_type='prediction_quiz',
+                prediction_quiz=PredictionQuizData(
+                    quiz_id='high_lr',
+                    show_result_after=True
+                ),
+                hints=[
+                    'Learning rate controls step size in gradient descent',
+                    'What happens if steps are TOO big?'
+                ]
+            ),
+            # Step 6: Debug challenge - find the exploding loss bug
+            PathStep(
+                step_number=6,
+                problem_id='xor',
+                title='Debug Challenge: Loss Explodes!',
+                learning_objectives=[
+                    'Recognize learning rate problems',
+                    'Diagnose numerical instability',
+                    'Apply knowledge from prediction quiz'
+                ],
+                step_type='debug_challenge',
+                debug_challenge=DebugChallengeData(
+                    challenge_id='exploding_loss'
+                ),
+                hints=[
+                    'The symptoms tell you a lot',
+                    'This relates to what you just predicted!'
+                ]
+            ),
+            # Step 7: Final training - put it all together
+            PathStep(
+                step_number=7,
+                problem_id='xor',
+                title='Victory Lap: Train XOR Successfully',
+                learning_objectives=[
+                    'Apply everything you learned',
+                    'Successfully train XOR from scratch',
+                    'Celebrate your understanding!'
+                ],
+                step_type='training',
+                required_accuracy=0.95,
+                hints=[
+                    'Use what you learned: hidden layers, good init, reasonable LR',
+                    'The default settings should work well now that you understand them!'
                 ]
             )
         ]

@@ -65,7 +65,7 @@ test.describe('Final Learning Path Verification', () => {
 
     const paths = [
       { id: 'foundations', expectedSteps: 7 },
-      { id: 'deep-learning-basics', expectedSteps: 8 },
+      { id: 'deep-learning-basics', expectedSteps: 10 }, // Updated: added linear and two_blobs
       { id: 'multi-class-mastery', expectedSteps: 4 },
       { id: 'convolutional-vision', expectedSteps: 3 },
       { id: 'pitfall-prevention', expectedSteps: 6 },

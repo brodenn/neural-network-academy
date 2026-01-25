@@ -16,6 +16,8 @@ import { ContextualTips } from './components/ContextualTips';
 import { LossLandscape3D } from './components/LossLandscape3D';
 import { LearningPathSelector } from './components/LearningPathSelector';
 import { PathDetailView } from './components/PathDetailView';
+import { ToastProvider } from './components/Toast';
+import { AchievementProvider } from './components/AchievementProvider';
 import type { NetworkState, PredictionResult, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
 
 const API_URL = 'http://localhost:5000';
@@ -31,7 +33,7 @@ function App() {
   } = useSocket();
 
   const [networkState, setNetworkState] = useState<NetworkState | null>(null);
-  const [predictions, setPredictions] = useState<PredictionResult[]>([]);
+  const [, setPredictions] = useState<PredictionResult[]>([]);
   const [trainingInProgress, setTrainingInProgress] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -390,6 +392,8 @@ function App() {
   const displayError = apiError || trainingError;
 
   return (
+    <ToastProvider>
+    <AchievementProvider>
     <div className="h-screen bg-gray-900 text-gray-100 p-2 lg:p-3 flex flex-col overflow-hidden">
       {/* Error Banner */}
       {displayError && (
@@ -633,6 +637,8 @@ function App() {
         onClose={() => setIsInfoModalOpen(false)}
       />
     </div>
+    </AchievementProvider>
+    </ToastProvider>
   );
 }
 

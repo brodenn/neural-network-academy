@@ -6,6 +6,8 @@ interface LearningPathCardProps {
   path: LearningPath;
   completed: number;
   isComplete?: boolean;
+  isLocked?: boolean;
+  missingPrerequisites?: string[];
   onSelect: () => void;
 }
 
@@ -20,6 +22,8 @@ export const LearningPathCard = ({
   path,
   completed,
   isComplete: isCompleteOverride,
+  isLocked = false,
+  missingPrerequisites = [],
   onSelect
 }: LearningPathCardProps) => {
   const isComplete = isCompleteOverride ?? completed === path.steps;
@@ -28,10 +32,14 @@ export const LearningPathCard = ({
 
   return (
     <motion.div
-      whileHover={{ scale: 1.02, y: -4 }}
-      whileTap={{ scale: 0.98 }}
-      className="bg-white rounded-lg shadow-md p-6 cursor-pointer border-2 border-gray-200 hover:border-blue-400 transition-colors"
-      onClick={onSelect}
+      whileHover={isLocked ? {} : { scale: 1.02, y: -4 }}
+      whileTap={isLocked ? {} : { scale: 0.98 }}
+      className={`bg-white rounded-lg shadow-md p-6 border-2 transition-colors ${
+        isLocked
+          ? 'border-gray-300 opacity-75 cursor-not-allowed'
+          : 'border-gray-200 hover:border-blue-400 cursor-pointer'
+      }`}
+      onClick={isLocked ? undefined : onSelect}
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -69,19 +77,34 @@ export const LearningPathCard = ({
         <PathProgressRing completed={completed} total={path.steps} size={60} />
       </div>
 
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className={`w-full py-2 rounded-lg font-medium transition-colors ${
-          notStarted
-            ? 'bg-blue-500 text-white hover:bg-blue-600'
-            : isComplete
-            ? 'bg-green-500 text-white hover:bg-green-600'
-            : 'bg-purple-500 text-white hover:bg-purple-600'
-        }`}
-      >
-        {notStarted ? 'Start Path' : isComplete ? 'Review' : 'Continue'}
-      </motion.button>
+      {isLocked ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-center gap-2 py-2 bg-gray-200 rounded-lg text-gray-500">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span className="font-medium">Locked</span>
+          </div>
+          <p className="text-xs text-gray-500 text-center">
+            Complete first: {missingPrerequisites.join(', ')}
+          </p>
+        </div>
+      ) : (
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className={`w-full py-2 rounded-lg font-medium transition-colors ${
+            notStarted
+              ? 'bg-blue-500 text-white hover:bg-blue-600'
+              : isComplete
+              ? 'bg-green-500 text-white hover:bg-green-600'
+              : 'bg-purple-500 text-white hover:bg-purple-600'
+          }`}
+        >
+          {notStarted ? 'Start Path' : isComplete ? 'Review' : 'Continue'}
+        </motion.button>
+      )}
     </motion.div>
   );
 };

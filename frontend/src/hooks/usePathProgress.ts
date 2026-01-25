@@ -2,10 +2,17 @@ import { useState, useCallback, useEffect } from 'react';
 import type { PathProgressData, StepProgressData } from '../types';
 
 const STORAGE_PREFIX = 'learning_path_';
+const STREAK_KEY = 'learning_streak';
 
 interface PathStepConfig {
   stepNumber: number;
   problemId: string;
+}
+
+interface StreakData {
+  lastAccessDate: string; // YYYY-MM-DD format
+  currentStreak: number;
+  bestStreak: number;
 }
 
 interface UsePathProgressReturn {
@@ -30,6 +37,10 @@ interface UsePathProgressReturn {
   // Computed values
   isPathComplete: (pathId: string, totalSteps: number) => boolean;
   getCompletedStepsCount: (pathId: string) => number;
+
+  // Streak tracking
+  getStreak: () => StreakData;
+  updateStreak: () => StreakData;
 }
 
 export function usePathProgress(): UsePathProgressReturn {
@@ -271,6 +282,66 @@ export function usePathProgress(): UsePathProgressReturn {
     return progress.stepsCompleted;
   }, [getPathProgress]);
 
+  // Streak tracking functions
+  const getTodayDate = (): string => {
+    return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  };
+
+  const getYesterdayDate = (): string => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    return yesterday.toISOString().split('T')[0];
+  };
+
+  const getStreak = useCallback((): StreakData => {
+    try {
+      const stored = localStorage.getItem(STREAK_KEY);
+      if (!stored) {
+        return { lastAccessDate: '', currentStreak: 0, bestStreak: 0 };
+      }
+      return JSON.parse(stored) as StreakData;
+    } catch {
+      return { lastAccessDate: '', currentStreak: 0, bestStreak: 0 };
+    }
+  }, []);
+
+  const updateStreak = useCallback((): StreakData => {
+    const today = getTodayDate();
+    const yesterday = getYesterdayDate();
+    const current = getStreak();
+
+    let newStreak: StreakData;
+
+    if (current.lastAccessDate === today) {
+      // Already logged in today, no change
+      newStreak = current;
+    } else if (current.lastAccessDate === yesterday) {
+      // Consecutive day - increment streak
+      const newCurrentStreak = current.currentStreak + 1;
+      newStreak = {
+        lastAccessDate: today,
+        currentStreak: newCurrentStreak,
+        bestStreak: Math.max(current.bestStreak, newCurrentStreak)
+      };
+    } else {
+      // Streak broken or first time - start at 1
+      newStreak = {
+        lastAccessDate: today,
+        currentStreak: 1,
+        bestStreak: Math.max(current.bestStreak, 1)
+      };
+    }
+
+    try {
+      localStorage.setItem(STREAK_KEY, JSON.stringify(newStreak));
+      forceUpdate();
+    } catch (e) {
+      console.error('Failed to save streak:', e);
+    }
+
+    return newStreak;
+  }, [getStreak, forceUpdate]);
+
   return {
     getPathProgress,
     getAllPathsProgress,
@@ -283,6 +354,8 @@ export function usePathProgress(): UsePathProgressReturn {
     isStepCompleted,
     getStepProgress,
     isPathComplete,
-    getCompletedStepsCount
+    getCompletedStepsCount,
+    getStreak,
+    updateStreak
   };
 }

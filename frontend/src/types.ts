@@ -231,6 +231,34 @@ export function getInputConfigForProblem(problem: ProblemInfo): InputConfig {
 
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced' | 'research';
 
+// Step types for interactive challenges
+export type StepType = 'training' | 'build_challenge' | 'prediction_quiz' | 'debug_challenge' | 'tuning_challenge';
+
+// Challenge-specific data interfaces
+export interface BuildChallengeData {
+  minLayers: number;
+  maxLayers: number;
+  minHiddenNeurons: number;
+  maxHiddenNeurons: number;
+  mustHaveHidden: boolean;
+  successMessage: string;
+}
+
+export interface PredictionQuizData {
+  quizId: string;
+  showResultAfter: boolean;
+}
+
+export interface DebugChallengeData {
+  challengeId: string;
+}
+
+export interface TuningChallengeData {
+  parameter: string;
+  targetLoss: number;
+  maxAttempts: number;
+}
+
 export interface PathStep {
   stepNumber: number;
   problemId: string;
@@ -238,6 +266,14 @@ export interface PathStep {
   learningObjectives: string[];
   requiredAccuracy?: number;
   hints: string[];
+  // New: step type for interactive challenges
+  stepType?: StepType;
+  // Challenge-specific data
+  buildChallenge?: BuildChallengeData;
+  predictionQuiz?: PredictionQuizData;
+  debugChallenge?: DebugChallengeData;
+  tuningChallenge?: TuningChallengeData;
+  // Runtime progress fields
   unlocked: boolean;
   completed: boolean;
   completedAt?: Date;

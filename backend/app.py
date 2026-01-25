@@ -593,6 +593,25 @@ def get_learning_path(path_id: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/paths/<path_id>/reset', methods=['POST'])
+def reset_learning_path(path_id: str):
+    """Reset learning path progress. Returns confirmation for frontend to clear localStorage."""
+    from learning_paths import get_path
+    try:
+        path = get_path(path_id)
+        if path is None:
+            return jsonify({"error": "Path not found"}), 404
+        # Progress is stored client-side in localStorage
+        # This endpoint validates the path exists and confirms reset is allowed
+        return jsonify({
+            "success": True,
+            "message": f"Path '{path['name']}' can be reset",
+            "pathId": path_id
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/input', methods=['POST'])
 def set_input():
     """Set input values and get prediction (generic for all problems)."""

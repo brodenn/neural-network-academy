@@ -1,6 +1,9 @@
 import { useReducer, useEffect, useCallback, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import confetti from 'canvas-confetti';
 import { usePathProgress } from '../hooks/usePathProgress';
+import { useToast } from '../hooks/useToast';
+import { useLearningStore } from '../stores/learningStore';
 import { PathProgressBar } from './PathProgressBar';
 import { PathStepCard } from './PathStepCard';
 import { StepHintPanel } from './StepHintPanel';
@@ -11,6 +14,18 @@ import { TrainingPanel } from './TrainingPanel';
 import { NetworkVisualization } from './NetworkVisualization';
 import { FeatureMapVisualization } from './FeatureMapVisualization';
 import { LossCurve } from './LossCurve';
+import { TrainingNarrator } from './TrainingNarrator';
+import { FailureDramatization, getFailureTypeFromProblemId } from './FailureDramatization';
+import { getRichHintsForProblem, getExperimentsForProblem } from '../data/richHints';
+// Interactive challenge components
+import { NetworkBuilder } from './NetworkBuilder';
+import { PredictionQuiz, PREDICTION_QUIZZES } from './PredictionQuiz';
+import { DebugChallenge, DEBUG_CHALLENGES } from './DebugChallenge';
+import type { StepType, BuildChallengeData, PredictionQuizData, DebugChallengeData } from '../types';
+
+// Milestone thresholds
+const MILESTONES = [25, 50, 75] as const;
+type MilestoneValue = typeof MILESTONES[number];
 import type {
   NetworkState,
   PredictionResult,
@@ -34,6 +49,11 @@ interface PathStep {
   learningObjectives: string[];
   requiredAccuracy: number;
   hints: string[];
+  // Interactive challenge fields
+  stepType?: StepType;
+  buildChallenge?: BuildChallengeData;
+  predictionQuiz?: PredictionQuizData;
+  debugChallenge?: DebugChallengeData;
 }
 
 interface PathDetailData {
@@ -189,7 +209,16 @@ export const PathDetailView = ({
     completeStep: completeStepInStorage,
     recordAttempt,
     setCurrentStep: setCurrentStepInStorage,
+    resetPath,
   } = usePathProgress();
+
+  // Zustand store for achievements
+  const storeCompleteStep = useLearningStore(state => state.completeStep);
+  const storeRecordAttempt = useLearningStore(state => state.recordAttempt);
+  const storeInitializePath = useLearningStore(state => state.initializePath);
+
+  // Reset confirmation state
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Main state reducer
   const [state, dispatch] = useReducer(stepReducer, initialState);
@@ -202,9 +231,20 @@ export const PathDetailView = ({
   const [inputValues, setInputValues] = useState<number[] | number[][]>([]);
   const [featureMaps, setFeatureMaps] = useState<CNNFeatureMaps | null>(null);
 
+  // Interactive challenge state
+  const [_challengeCompleted, setChallengeCompleted] = useState(false);
+  const [showTrainingAfterChallenge, setShowTrainingAfterChallenge] = useState(false);
+
   // Track previous training state to detect completion
   const prevTrainingCompleteRef = useRef(trainingComplete);
   const hasProcessedCompletionRef = useRef(false);
+
+  // Milestone celebrations
+  const [celebratedMilestones, setCelebratedMilestones] = useState<Set<MilestoneValue>>(new Set());
+  const [currentMilestone, setCurrentMilestone] = useState<MilestoneValue | null>(null);
+
+  // Toast notifications
+  const { showToast } = useToast();
 
   // =============================================================================
   // HELPER FUNCTIONS
@@ -213,11 +253,15 @@ export const PathDetailView = ({
   const fetchNetworkState = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/network`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.warn('Failed to fetch network state');
+        return;
+      }
       const data = await res.json();
       setNetworkState(data);
-    } catch {
-      // Silently ignore
+    } catch (err) {
+      console.error('Network fetch error:', err);
+      // Don't show toast for network fetch - it's a background operation
     }
   }, []);
 
@@ -226,10 +270,11 @@ export const PathDetailView = ({
       const res = await fetch(`${API_URL}/api/problems/${problemId}/select`, { method: 'POST' });
       if (!res.ok) throw new Error('Failed to select problem');
       await fetchNetworkState();
-    } catch {
-      // Silently ignore
+    } catch (err) {
+      console.error('Problem selection error:', err);
+      showToast('Failed to load problem. Please try again.', 'error');
     }
-  }, [fetchNetworkState]);
+  }, [fetchNetworkState, showToast]);
 
   // =============================================================================
   // LOAD PATH DATA
@@ -244,12 +289,13 @@ export const PathDetailView = ({
         if (!res.ok) throw new Error('Failed to load path');
         const data: PathDetailData = await res.json();
 
-        // Initialize progress in localStorage
+        // Initialize progress in localStorage and Zustand store
         const stepConfigs = data.steps.map((s) => ({
           stepNumber: s.stepNumber,
           problemId: s.problemId
         }));
         const progress = initializePath(pathId, stepConfigs);
+        storeInitializePath(pathId, stepConfigs);
 
         dispatch({
           type: 'LOAD_SUCCESS',
@@ -269,7 +315,7 @@ export const PathDetailView = ({
     };
 
     loadPath();
-  }, [pathId, initializePath, selectProblem]);
+  }, [pathId, initializePath, storeInitializePath, selectProblem]);
 
   // =============================================================================
   // SOCKET LISTENERS
@@ -342,6 +388,10 @@ export const PathDetailView = ({
     dispatch({ type: 'NAVIGATE_TO_STEP', stepNum });
     hasProcessedCompletionRef.current = false;
 
+    // Reset challenge state
+    setChallengeCompleted(false);
+    setShowTrainingAfterChallenge(false);
+
     // Load the new problem
     const step = pathData.steps[stepNum - 1];
     if (step) {
@@ -390,18 +440,49 @@ export const PathDetailView = ({
 
       // Complete in localStorage and get updated progress
       completeStepInStorage(pathId, currentStepNum, achieved);
+
+      // Complete in Zustand store (triggers achievement checks)
+      storeCompleteStep(pathId, currentStepNum, achieved);
+
       const updatedProgress = getPathProgress(pathId);
 
       if (updatedProgress) {
         dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+
+        // Check for milestone celebrations
+        const completedCount = updatedProgress.steps.filter(s => s.completed).length;
+        const totalSteps = pathData.steps.length;
+        const progressPercent = (completedCount / totalSteps) * 100;
+
+        for (const milestone of MILESTONES) {
+          if (progressPercent >= milestone && !celebratedMilestones.has(milestone)) {
+            // Trigger milestone celebration
+            setCurrentMilestone(milestone);
+            setCelebratedMilestones(prev => new Set([...prev, milestone]));
+
+            // Fire confetti!
+            confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 },
+              colors: milestone === 75 ? ['#FFD700', '#FFA500', '#FF6347'] :
+                      milestone === 50 ? ['#00CED1', '#20B2AA', '#48D1CC'] :
+                                         ['#98FB98', '#90EE90', '#3CB371']
+            });
+            break; // Only celebrate one milestone at a time
+          }
+        }
       }
 
       // Check if this was the last step
       if (currentStepNum === pathData.steps.length) {
         dispatch({ type: 'PATH_COMPLETED' });
       }
+    } else {
+      // Record failed attempt in Zustand store (for tracking)
+      storeRecordAttempt(pathId, currentStepNum, achieved);
     }
-  }, [trainingComplete, trainingProgress, pathData, currentStepNum, stepsProgress, showCompletionBanner, pathId, recordAttempt, completeStepInStorage, getPathProgress]);
+  }, [trainingComplete, trainingProgress, pathData, currentStepNum, stepsProgress, showCompletionBanner, pathId, recordAttempt, completeStepInStorage, getPathProgress, celebratedMilestones, storeCompleteStep, storeRecordAttempt]);
 
   // =============================================================================
   // TRAINING HANDLERS
@@ -410,12 +491,15 @@ export const PathDetailView = ({
   const handleStartAdaptive = async (targetAccuracy: number) => {
     setTrainingInProgress(true);
     try {
-      await fetch(`${API_URL}/api/train/adaptive`, {
+      const res = await fetch(`${API_URL}/api/train/adaptive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target_accuracy: targetAccuracy })
       });
-    } catch {
+      if (!res.ok) throw new Error('Training request failed');
+    } catch (err) {
+      console.error('Adaptive training error:', err);
+      showToast('Failed to start training. Check if the server is running.', 'error');
       setTrainingInProgress(false);
     }
   };
@@ -423,44 +507,55 @@ export const PathDetailView = ({
   const handleStartStatic = async (epochs: number, learningRate: number) => {
     setTrainingInProgress(true);
     try {
-      await fetch(`${API_URL}/api/train`, {
+      const res = await fetch(`${API_URL}/api/train`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ epochs, learning_rate: learningRate })
       });
-    } catch {
+      if (!res.ok) throw new Error('Training request failed');
+    } catch (err) {
+      console.error('Static training error:', err);
+      showToast('Failed to start training. Check if the server is running.', 'error');
       setTrainingInProgress(false);
     }
   };
 
   const handleStepTraining = async () => {
     try {
-      await fetch(`${API_URL}/api/train/step`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/train/step`, { method: 'POST' });
+      if (!res.ok) throw new Error('Step training failed');
       await fetchNetworkState();
-    } catch {
-      // Silently ignore
+    } catch (err) {
+      console.error('Step training error:', err);
+      showToast('Failed to run training step.', 'error');
     }
   };
 
   const handleResetNetwork = async () => {
     try {
-      await fetch(`${API_URL}/api/network/reset`, { method: 'POST' });
+      const res = await fetch(`${API_URL}/api/network/reset`, { method: 'POST' });
+      if (!res.ok) throw new Error('Reset failed');
       await fetchNetworkState();
-    } catch {
-      // Silently ignore
+      showToast('Network reset successfully!', 'success');
+    } catch (err) {
+      console.error('Network reset error:', err);
+      showToast('Failed to reset network.', 'error');
     }
   };
 
   const handleArchitectureChange = async (layers: number[], settings: Record<string, unknown>) => {
     try {
-      await fetch(`${API_URL}/api/network/architecture`, {
+      const res = await fetch(`${API_URL}/api/network/architecture`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ layer_sizes: layers, ...settings })
       });
+      if (!res.ok) throw new Error('Architecture change failed');
       await fetchNetworkState();
-    } catch {
-      // Silently ignore
+      showToast('Network architecture updated!', 'success');
+    } catch (err) {
+      console.error('Architecture change error:', err);
+      showToast('Failed to update architecture.', 'error');
     }
   };
 
@@ -468,6 +563,94 @@ export const PathDetailView = ({
     setInputValues(values);
     if (socket && trainingComplete) {
       socket.emit('set_inputs', { inputs: values });
+    }
+  };
+
+  // =============================================================================
+  // CHALLENGE HANDLERS
+  // =============================================================================
+
+  const handleBuildChallengeSubmit = async (architecture: number[]) => {
+    // Apply the architecture
+    try {
+      await handleArchitectureChange(architecture, {});
+      setChallengeCompleted(true);
+      setShowTrainingAfterChallenge(true);
+      showToast('Architecture submitted! Now train to see the result.', 'success');
+    } catch {
+      showToast('Failed to apply architecture.', 'error');
+    }
+  };
+
+  const handlePredictionQuizAnswer = (correct: boolean, _selectedId: string) => {
+    if (correct) {
+      showToast('Correct prediction! 🎉', 'success');
+    } else {
+      showToast('Not quite - let\'s see what actually happens!', 'info');
+    }
+  };
+
+  const handlePredictionQuizRevealAndTrain = async () => {
+    setChallengeCompleted(true);
+    setShowTrainingAfterChallenge(true);
+    // Mark the step as complete
+    if (pathData && currentStepNum <= pathData.steps.length) {
+      const currentStep = pathData.steps[currentStepNum - 1];
+      if (currentStep?.stepType === 'prediction_quiz') {
+        completeStepInStorage(pathId, currentStepNum, 1.0);
+        storeCompleteStep(pathId, currentStepNum, 1.0);
+        const updatedProgress = getPathProgress(pathId);
+        if (updatedProgress) {
+          dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+        }
+      }
+    }
+  };
+
+  const handleDebugChallengeSolved = (correct: boolean) => {
+    if (correct) {
+      showToast('Bug found! Great debugging! 🐛', 'success');
+    }
+  };
+
+  const handleDebugChallengeTryFix = async (fixId: string) => {
+    setChallengeCompleted(true);
+    setShowTrainingAfterChallenge(true);
+    // Apply the fix based on the bug type
+    if (fixId === 'hidden') {
+      await handleArchitectureChange([2, 4, 1], {});
+    } else if (fixId === 'zeros') {
+      await handleArchitectureChange([2, 4, 1], { weight_init: 'xavier' });
+    } else if (fixId === 'lr') {
+      // Reset for proper LR - will be handled by training panel
+    }
+    // Mark step as complete
+    if (pathData) {
+      completeStepInStorage(pathId, currentStepNum, 1.0);
+      storeCompleteStep(pathId, currentStepNum, 1.0);
+      const updatedProgress = getPathProgress(pathId);
+      if (updatedProgress) {
+        dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+      }
+    }
+  };
+
+  const handleResetPath = async () => {
+    try {
+      // Validate with backend
+      const res = await fetch(`${API_URL}/api/paths/${pathId}/reset`, { method: 'POST' });
+      if (!res.ok) throw new Error('Reset validation failed');
+
+      // Reset localStorage
+      resetPath(pathId);
+
+      showToast('Path progress reset! Reloading...', 'success');
+
+      // Reload the path from scratch after a brief delay
+      setTimeout(() => window.location.reload(), 500);
+    } catch (err) {
+      console.error('Path reset error:', err);
+      showToast('Failed to reset path. Please try again.', 'error');
     }
   };
 
@@ -518,36 +701,86 @@ export const PathDetailView = ({
             </p>
           </div>
         </div>
-        <div className="text-sm text-gray-400">
-          {stepsProgress.filter(s => s.completed).length}/{pathData.steps.length} completed
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-400">
+            {stepsProgress.filter(s => s.completed).length}/{pathData.steps.length} completed
+          </div>
+          <button
+            onClick={() => setShowResetConfirm(true)}
+            className="px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="Reset path progress"
+          >
+            Reset
+          </button>
         </div>
       </div>
+
+      {/* Reset Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-gray-800 rounded-lg p-6 max-w-md mx-4 border border-gray-700"
+          >
+            <h3 className="text-lg font-semibold mb-2">Reset Progress?</h3>
+            <p className="text-gray-400 mb-4">
+              This will clear all progress for "{pathData.name}" and start from the beginning.
+              This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowResetConfirm(false);
+                  handleResetPath();
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                Reset Path
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Progress Bar */}
       <PathProgressBar
         steps={stepsProgress}
+        stepInfo={pathData?.steps.map(s => ({
+          stepNumber: s.stepNumber,
+          title: s.title,
+          problemId: s.problemId
+        }))}
         currentStep={currentStepNum}
         onStepClick={navigateToStep}
       />
 
-      {/* Main Content Grid */}
-      <div className="flex-1 grid grid-cols-[320px_1fr_320px] gap-4 min-h-0 overflow-hidden">
+      {/* Main Content Grid - Responsive: 1 col mobile, 2 col tablet, 3 col desktop */}
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[320px_1fr_320px] gap-4 min-h-0 overflow-hidden">
         {/* Left: Step Info */}
         <div className="space-y-3 overflow-y-auto">
           {currentStep && (
             <PathStepCard
               step={currentStep}
-              stepProgress={stepProgress}
+              progress={stepProgress ?? null}
               isCurrentStep={true}
-              bestAccuracy={stepProgress?.bestAccuracy ?? 0}
-              attempts={stepProgress?.attempts ?? 0}
             />
           )}
 
           {currentStep && (
             <StepHintPanel
-              hints={currentStep.hints}
+              hints={getRichHintsForProblem(currentStep.problemId, currentStep.hints)}
+              experiments={getExperimentsForProblem(currentStep.problemId)}
               attempts={stepProgress?.attempts ?? 0}
+              accuracy={stepProgress?.bestAccuracy ?? 0}
+              requiredAccuracy={currentStep.requiredAccuracy}
+              problemId={currentStep.problemId}
             />
           )}
 
@@ -574,53 +807,159 @@ export const PathDetailView = ({
           )}
         </div>
 
-        {/* Center: Input/Output + Training */}
+        {/* Center: Challenge/Training Content - varies by step type */}
         <div className="space-y-3 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-3">
-            <InputPanel
-              problem={currentProblem}
-              values={inputValues}
-              onChange={handleInputChange}
-              disabled={!trainingComplete}
+          {/* BUILD CHALLENGE STEP */}
+          {currentStep?.stepType === 'build_challenge' && currentStep.buildChallenge && !showTrainingAfterChallenge && (
+            <NetworkBuilder
+              problemId={currentStep.problemId}
+              inputSize={currentProblem?.input_labels?.length ?? 2}
+              outputSize={currentProblem?.output_labels?.length ?? 1}
+              requirements={{
+                minLayers: currentStep.buildChallenge.minLayers,
+                maxLayers: currentStep.buildChallenge.maxLayers,
+                minHiddenNeurons: currentStep.buildChallenge.minHiddenNeurons,
+                maxHiddenNeurons: currentStep.buildChallenge.maxHiddenNeurons,
+                mustHaveHidden: currentStep.buildChallenge.mustHaveHidden,
+              }}
+              onSubmit={handleBuildChallengeSubmit}
+              onArchitectureChange={(arch) => {
+                // Preview architecture in network viz
+                if (networkState) {
+                  setNetworkState({
+                    ...networkState,
+                    architecture: { ...networkState.architecture, layer_sizes: arch }
+                  });
+                }
+              }}
             />
-            <OutputDisplay
-              problem={currentProblem}
-              prediction={lastPrediction}
-              trainingComplete={trainingComplete}
-            />
-          </div>
-
-          {currentProblem?.network_type === 'cnn' && featureMaps && (
-            <FeatureMapVisualization featureMaps={featureMaps} />
           )}
 
-          <TrainingPanel
-            currentProblem={currentProblem}
-            currentEpoch={trainingProgress?.epoch ?? 0}
-            currentLoss={trainingProgress?.loss ?? 0}
-            currentAccuracy={trainingProgress?.accuracy ?? 0}
-            trainingInProgress={trainingInProgress}
-            trainingComplete={trainingComplete}
-            onStartStatic={handleStartStatic}
-            onStartAdaptive={handleStartAdaptive}
-            onStep={(lr) => handleStepTraining()}
-            onStop={() => {}}
-            onUpdateTarget={() => {}}
-            onReset={handleResetNetwork}
-            onSettingsChange={(settings) => handleArchitectureChange(settings.layers, settings)}
-            currentArchitecture={networkState?.architecture?.layer_sizes ?? [2, 4, 1]}
-            currentWeightInit={networkState?.architecture?.weight_init ?? 'xavier'}
-            currentHiddenActivation={networkState?.architecture?.hidden_activation ?? 'relu'}
-            currentUseBiases={networkState?.architecture?.use_biases ?? true}
-            isCNN={currentProblem?.network_type === 'cnn'}
-          />
+          {/* PREDICTION QUIZ STEP */}
+          {currentStep?.stepType === 'prediction_quiz' && currentStep.predictionQuiz && !showTrainingAfterChallenge && (
+            (() => {
+              const quizId = currentStep.predictionQuiz!.quizId as keyof typeof PREDICTION_QUIZZES;
+              const quizData = PREDICTION_QUIZZES[quizId];
+              if (!quizData) return null;
+              return (
+                <PredictionQuiz
+                  question={quizData.question}
+                  context={quizData.context}
+                  options={quizData.options}
+                  onAnswer={handlePredictionQuizAnswer}
+                  onRevealAndTrain={handlePredictionQuizRevealAndTrain}
+                />
+              );
+            })()
+          )}
 
-          <LossCurve
-            lossHistory={networkState?.loss_history ?? []}
-            accuracyHistory={networkState?.accuracy_history ?? []}
-            totalEpochs={networkState?.total_epochs}
-            trainingComplete={trainingComplete}
-          />
+          {/* DEBUG CHALLENGE STEP */}
+          {currentStep?.stepType === 'debug_challenge' && currentStep.debugChallenge && !showTrainingAfterChallenge && (
+            (() => {
+              const challengeId = currentStep.debugChallenge!.challengeId as keyof typeof DEBUG_CHALLENGES;
+              const challengeData = DEBUG_CHALLENGES[challengeId];
+              if (!challengeData) return null;
+              return (
+                <DebugChallenge
+                  title={challengeData.title}
+                  description={challengeData.description}
+                  problem={challengeData.problem}
+                  config={challengeData.config}
+                  symptoms={challengeData.symptoms}
+                  options={challengeData.options}
+                  onSolved={handleDebugChallengeSolved}
+                  onTryFix={handleDebugChallengeTryFix}
+                />
+              );
+            })()
+          )}
+
+          {/* TRAINING STEP (default) or after challenge completion */}
+          {(currentStep?.stepType === 'training' || !currentStep?.stepType || showTrainingAfterChallenge) && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <InputPanel
+                  problem={currentProblem}
+                  values={inputValues}
+                  onChange={handleInputChange}
+                  disabled={!trainingComplete}
+                />
+                <OutputDisplay
+                  problem={currentProblem}
+                  prediction={lastPrediction}
+                />
+              </div>
+
+              {currentProblem?.network_type === 'cnn' && featureMaps && (
+                <FeatureMapVisualization
+                  inputGrid={Array.isArray(inputValues[0]) ? (inputValues as number[][]) : []}
+                  featureMaps={featureMaps}
+                  architecture={networkState?.architecture ?? null}
+                  weights={networkState?.weights ?? []}
+                  prediction={
+                    lastPrediction?.prediction && Array.isArray(lastPrediction.prediction)
+                      ? lastPrediction.prediction
+                      : null
+                  }
+                  outputLabels={currentProblem?.output_labels ?? []}
+                />
+              )}
+
+              <TrainingPanel
+                currentProblem={currentProblem}
+                currentEpoch={trainingProgress?.epoch ?? 0}
+                currentLoss={trainingProgress?.loss ?? 0}
+                currentAccuracy={trainingProgress?.accuracy ?? 0}
+                trainingInProgress={trainingInProgress}
+                trainingComplete={trainingComplete}
+                onStartStatic={handleStartStatic}
+                onStartAdaptive={handleStartAdaptive}
+                onStep={() => handleStepTraining()}
+                onStop={() => {}}
+                onUpdateTarget={() => {}}
+                onReset={handleResetNetwork}
+                onSettingsChange={(settings) => handleArchitectureChange(settings.layers, settings)}
+                currentArchitecture={networkState?.architecture?.layer_sizes ?? [2, 4, 1]}
+                currentWeightInit={networkState?.architecture?.weight_init ?? 'xavier'}
+                currentHiddenActivation={networkState?.architecture?.hidden_activation ?? 'relu'}
+                currentUseBiases={networkState?.architecture?.use_biases ?? true}
+                isCNN={currentProblem?.network_type === 'cnn'}
+              />
+
+              {/* Training Narrator - Real-time insights */}
+              {trainingInProgress && (
+                <TrainingNarrator
+                  epoch={trainingProgress?.epoch ?? 0}
+                  loss={trainingProgress?.loss ?? 0}
+                  accuracy={trainingProgress?.accuracy ?? 0}
+                  isTraining={trainingInProgress}
+                  isComplete={trainingComplete}
+                  targetAccuracy={currentStep?.requiredAccuracy ?? 0.95}
+                  isFailureCase={currentStep?.problemId?.startsWith('fail_')}
+                />
+              )}
+
+              {/* Failure Dramatization for failure case problems */}
+              {currentStep?.problemId && getFailureTypeFromProblemId(currentStep.problemId) && (
+                <FailureDramatization
+                  failureType={getFailureTypeFromProblemId(currentStep.problemId)!}
+                  isActive={trainingInProgress || trainingComplete}
+                  loss={trainingProgress?.loss ?? 0}
+                  accuracy={trainingProgress?.accuracy ?? 0}
+                  epoch={trainingProgress?.epoch ?? 0}
+                />
+              )}
+
+              <LossCurve
+                lossHistory={networkState?.loss_history ?? []}
+                accuracyHistory={networkState?.accuracy_history ?? []}
+                totalEpochs={networkState?.total_epochs}
+                trainingComplete={trainingComplete}
+                targetAccuracy={currentStep?.requiredAccuracy ?? 0.95}
+                isFailureCase={currentStep?.problemId?.startsWith('fail_')}
+              />
+            </>
+          )}
         </div>
 
         {/* Right: Network Visualization */}
@@ -641,14 +980,72 @@ export const PathDetailView = ({
       {/* Path Completion Modal */}
       {showPathCompleteModal && (
         <PathCompletionModal
+          isOpen={showPathCompleteModal}
           pathName={pathData.name}
           badge={pathData.badge}
-          totalSteps={pathData.steps.length}
+          stats={{
+            totalSteps: pathData.steps.length,
+            totalAttempts: stepsProgress.reduce(
+              (sum, sp) => sum + (sp?.attempts ?? 0),
+              0
+            ),
+            avgAccuracy: stepsProgress.reduce(
+              (sum, sp) => sum + (sp?.bestAccuracy ?? 0),
+              0
+            ) / Math.max(pathData.steps.length, 1),
+          }}
           onClose={() => dispatch({ type: 'CLOSE_PATH_COMPLETE_MODAL' })}
-          onReview={() => dispatch({ type: 'CLOSE_PATH_COMPLETE_MODAL' })}
-          onExit={onExitPath}
+          onReviewPath={() => dispatch({ type: 'CLOSE_PATH_COMPLETE_MODAL' })}
+          onBackToPaths={onExitPath}
         />
       )}
+
+      {/* Milestone Celebration Toast */}
+      <AnimatePresence>
+        {currentMilestone && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50"
+          >
+            <motion.div
+              className={`px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 ${
+                currentMilestone === 75 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
+                currentMilestone === 50 ? 'bg-gradient-to-r from-cyan-500 to-teal-500' :
+                                          'bg-gradient-to-r from-green-500 to-emerald-500'
+              }`}
+              initial={{ rotate: -5 }}
+              animate={{ rotate: [0, -2, 2, 0] }}
+              transition={{ duration: 0.5 }}
+            >
+              <motion.span
+                className="text-4xl"
+                animate={{ scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
+                transition={{ duration: 0.6, repeat: 2 }}
+              >
+                {currentMilestone === 75 ? '🏆' : currentMilestone === 50 ? '⭐' : '🎯'}
+              </motion.span>
+              <div className="text-white">
+                <div className="font-bold text-lg">{currentMilestone}% Complete!</div>
+                <div className="text-sm opacity-90">
+                  {currentMilestone === 75 ? 'Almost there! Final stretch!' :
+                   currentMilestone === 50 ? 'Halfway there! Keep going!' :
+                                             'Great start! You\'re on a roll!'}
+                </div>
+              </div>
+              <button
+                onClick={() => setCurrentMilestone(null)}
+                className="ml-2 text-white/80 hover:text-white"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

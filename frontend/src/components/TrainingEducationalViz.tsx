@@ -593,7 +593,7 @@ export function TrainingEducationalViz({
               <div className="overflow-x-auto py-4">
                 <svg width="600" height="250" className="mx-auto">
                   {/* Gradient flow arrows */}
-                  {layerSizes.slice(0, -1).map((size, layerIdx) => {
+                  {layerSizes.slice(0, -1).map((_, layerIdx) => {
                     const reverseIdx = layerSizes.length - 2 - layerIdx;
                     const x1 = 80 + (reverseIdx + 1) * 140;
                     const x2 = 80 + reverseIdx * 140;
