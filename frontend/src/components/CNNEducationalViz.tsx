@@ -53,41 +53,6 @@ const itemVariants = {
   show: { opacity: 1, scale: 1, y: 0 },
 };
 
-// Tab button component
-function TabButton({
-  mode,
-  currentMode,
-  onClick,
-  color,
-  children
-}: {
-  mode: Mode;
-  currentMode: Mode;
-  onClick: () => void;
-  color: string;
-  children: React.ReactNode;
-}) {
-  const isActive = mode === currentMode;
-  const colorClasses: Record<string, string> = {
-    yellow: isActive ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    cyan: isActive ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    orange: isActive ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    green: isActive ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    purple: isActive ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    blue: isActive ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-    pink: isActive ? 'bg-pink-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${colorClasses[color]}`}
-    >
-      {children}
-    </button>
-  );
-}
-
 export function CNNEducationalViz({ inputGrid, onClose }: CNNEducationalVizProps) {
   const [mode, setMode] = useState<Mode>('conv');
   const [kernelPos, setKernelPos] = useState({ row: 0, col: 0 });
@@ -316,14 +281,14 @@ export function CNNEducationalViz({ inputGrid, onClose }: CNNEducationalVizProps
           </button>
         </div>
 
-        {/* Pipeline indicator */}
-        <div className="mb-4 flex items-center gap-1 text-xs overflow-x-auto pb-2">
+        {/* Pipeline steps */}
+        <div className="mb-4 flex items-center gap-1 text-sm overflow-x-auto pb-2">
           {(['padding', 'conv', 'relu', 'maxpool', 'flatten', 'dense', 'softmax'] as Mode[]).map((m, i) => (
             <div key={m} className="flex items-center">
               <div
-                className={`px-2 py-1 rounded cursor-pointer transition-all ${
+                className={`px-3 py-1.5 rounded cursor-pointer transition-all ${
                   mode === m
-                    ? 'bg-white text-gray-900 font-bold scale-110'
+                    ? 'bg-white text-gray-900 font-bold'
                     : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
                 }`}
                 onClick={() => handleModeChange(m)}
@@ -333,31 +298,6 @@ export function CNNEducationalViz({ inputGrid, onClose }: CNNEducationalVizProps
               {i < 6 && <span className="text-gray-600 mx-1">→</span>}
             </div>
           ))}
-        </div>
-
-        {/* Mode tabs */}
-        <div className="flex gap-2 mb-4 flex-wrap">
-          <TabButton mode="padding" currentMode={mode} onClick={() => handleModeChange('padding')} color="yellow">
-            🔲 Padding
-          </TabButton>
-          <TabButton mode="conv" currentMode={mode} onClick={() => handleModeChange('conv')} color="cyan">
-            🔍 Convolution
-          </TabButton>
-          <TabButton mode="relu" currentMode={mode} onClick={() => handleModeChange('relu')} color="orange">
-            ⚡ ReLU
-          </TabButton>
-          <TabButton mode="maxpool" currentMode={mode} onClick={() => handleModeChange('maxpool')} color="green">
-            📉 MaxPool
-          </TabButton>
-          <TabButton mode="flatten" currentMode={mode} onClick={() => handleModeChange('flatten')} color="purple">
-            📏 Flatten
-          </TabButton>
-          <TabButton mode="dense" currentMode={mode} onClick={() => handleModeChange('dense')} color="blue">
-            🔗 Dense
-          </TabButton>
-          <TabButton mode="softmax" currentMode={mode} onClick={() => handleModeChange('softmax')} color="pink">
-            📊 Softmax
-          </TabButton>
         </div>
 
         <AnimatePresence mode="wait">
