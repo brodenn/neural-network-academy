@@ -104,11 +104,11 @@ neural-network-academy/
 │   ├── cnn_network.py         # Pure NumPy CNN
 │   ├── problems.py            # 32 problem definitions
 │   ├── learning_paths.py      # 7 learning paths
-│   └── tests/                 # 358 pytest tests
+│   └── tests/                 # 360 pytest tests
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── components/        # 41 React components
+│   │   ├── components/        # 38 React components
 │   │   ├── stores/            # Zustand state management
 │   │   └── hooks/             # Custom React hooks
 │   └── tests/                 # Playwright E2E tests
@@ -144,7 +144,7 @@ prediction           # Real-time prediction
 ## Testing
 
 ```bash
-# Backend (358 tests)
+# Backend (360 tests)
 cd backend && pytest
 
 # Frontend E2E

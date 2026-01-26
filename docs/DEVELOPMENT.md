@@ -1,6 +1,6 @@
-# CLAUDE.md
+# Development Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Developer documentation for Neural Network Academy.
 
 ## Project Overview
 
@@ -41,7 +41,7 @@ npm run lint                     # ESLint check
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Frontend (React)                          │
-│  App.tsx orchestrates all components (22 total)                  │
+│  App.tsx orchestrates all components (38 total)                  │
 │  ├── ProblemSelector - Navigate 32 problems across 7 levels     │
 │  ├── InputPanel - Adaptive controls (1D/2D/CNN canvas)          │
 │  ├── NetworkVisualization - SVG network diagram (dense + CNN)   │
@@ -121,7 +121,6 @@ Each problem includes educational metadata: `difficulty`, `concept`, `learning_g
 | `/api/train` | POST | Static training (epochs, LR) |
 | `/api/train/adaptive` | POST | Adaptive training (~99% accuracy) |
 | `/api/train/step` | POST | Single epoch (step-by-step mode) |
-| `/api/input` | POST | Set inputs + get prediction |
 
 ## WebSocket Events
 
