@@ -574,9 +574,6 @@ def set_architecture():
     # Apply forced settings for failure case problems
     if info.forced_weight_init:
         weight_init = info.forced_weight_init
-    if info.forced_learning_rate is not None:
-        # Learning rate is handled in training routes, not here
-        pass
 
     # Validate against current problem
     expected_input = len(info.input_labels)

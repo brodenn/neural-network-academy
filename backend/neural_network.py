@@ -88,11 +88,8 @@ class NeuralNetwork:
                 limit = np.sqrt(6.0 / (in_size + out_size))
                 w = np.random.uniform(-limit, limit, (in_size, out_size))
 
-            # Biases
-            if self.use_biases:
-                b = np.zeros((1, out_size))
-            else:
-                b = np.zeros((1, out_size))  # Still create array but won't update
+            # Biases (always create array, but only update during training if use_biases=True)
+            b = np.zeros((1, out_size))
 
             self.weights.append(w)
             self.biases.append(b)
