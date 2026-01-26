@@ -29,38 +29,32 @@ export function useSocket(): UseSocketReturn {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Connected to server');
       setConnected(true);
     });
 
     socket.on('disconnect', () => {
-      console.log('Disconnected from server');
       setConnected(false);
     });
 
     socket.on('status', (status: { training_complete: boolean }) => {
-      console.log('Received status:', status);
       setTrainingComplete(status.training_complete);
     });
 
     socket.on('training_progress', (progress: TrainingProgress) => {
-      console.log('Received training_progress:', progress);
       setTrainingProgress(progress);
     });
 
-    socket.on('training_started', (data) => {
-      console.log('Received training_started:', data);
+    socket.on('training_started', () => {
       setTrainingComplete(false);
       setTrainingError(null);
     });
 
     socket.on('training_error', (data: { error: string }) => {
-      console.error('Received training_error:', data.error);
+      console.error('Training error:', data.error);
       setTrainingError(data.error);
     });
 
     socket.on('training_complete', (result: TrainingResult) => {
-      console.log('Received training_complete:', result);
       setTrainingComplete(true);
       setTrainingError(null);
       setTrainingProgress({

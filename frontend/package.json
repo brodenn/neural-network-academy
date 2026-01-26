@@ -26,7 +26,6 @@
     "canvas-confetti": "^1.9.4",
     "framer-motion": "^12.27.1",
     "react": "^19.2.0",
-    "react-achievements": "^3.8.0",
     "react-dom": "^19.2.0",
     "react-is": "^19.2.3",
     "recharts": "^3.6.0",

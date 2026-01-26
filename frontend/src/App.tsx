@@ -18,7 +18,7 @@ import { LearningPathSelector } from './components/LearningPathSelector';
 import { PathDetailView } from './components/PathDetailView';
 import { ToastProvider } from './components/Toast';
 import { AchievementProvider } from './components/AchievementProvider';
-import type { NetworkState, PredictionResult, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
+import type { NetworkState, ProblemInfo, NetworkType, CNNFeatureMaps } from './types';
 
 const API_URL = 'http://localhost:5000';
 
@@ -33,7 +33,6 @@ function App() {
   } = useSocket();
 
   const [networkState, setNetworkState] = useState<NetworkState | null>(null);
-  const [, setPredictions] = useState<PredictionResult[]>([]);
   const [trainingInProgress, setTrainingInProgress] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -125,27 +124,20 @@ function App() {
         setCurrentProblem(data.info);
         setNetworkType(data.info.network_type || 'dense');
         setInputValues(initializeInputValues(data.info));
-        setPredictions([]);
         setFeatureMaps(null);
         fetchNetworkState();
       };
 
       const handleTrainingStarted = () => {
-        // Backend confirmed training has started
-        console.log('Training started confirmed by backend');
         setTrainingInProgress(true);
       };
 
       const handleTrainingComplete = () => {
-        // Always fetch network state when training completes to get final data
-        console.log('Training complete');
         setTrainingInProgress(false);
         fetchNetworkState();
       };
 
       const handleTrainingStopped = () => {
-        // Training was stopped by user
-        console.log('Training stopped');
         setTrainingInProgress(false);
         fetchNetworkState();
       };
@@ -184,14 +176,10 @@ function App() {
     }
   }, [trainingInProgress, fetchNetworkState]);
 
-  // Track predictions and feature maps
+  // Track feature maps from predictions
   useEffect(() => {
-    if (lastPrediction) {
-      setPredictions((prev) => [...prev.slice(-50), lastPrediction]);
-      // Update feature maps for CNN
-      if (lastPrediction.feature_maps) {
-        setFeatureMaps(lastPrediction.feature_maps);
-      }
+    if (lastPrediction?.feature_maps) {
+      setFeatureMaps(lastPrediction.feature_maps);
     }
   }, [lastPrediction]);
 
@@ -312,7 +300,6 @@ function App() {
         throw new Error(data.error || `HTTP ${res.status}`);
       }
       await fetchNetworkState();
-      setPredictions([]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       console.error('Failed to reset network:', message);
