@@ -2,7 +2,14 @@
 
 An interactive educational platform for learning neural networks from first principles. Features **32 progressive problems**, **7 guided learning paths**, and hands-on challenges - all implemented from scratch using only NumPy.
 
-**Try it:** Clone, run, and start learning in under 2 minutes.
+**School Project:** Maskininlärning - Projekt II (Variant 2)
+
+---
+
+## Prerequisites
+
+- **Python 3.8+** with pip
+- **Node.js 18+** with npm
 
 ---
 
@@ -167,6 +174,98 @@ cd frontend && npx playwright test
 ## Why NumPy Only?
 
 This project implements neural networks from scratch without TensorFlow, PyTorch, or other ML frameworks. Every forward pass, backpropagation step, and gradient update is written in plain NumPy. This makes the learning experience transparent - you can trace exactly how the network learns.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Frontend (React)                          │
+│  ├── Network Visualization    Real-time SVG network diagram     │
+│  ├── Decision Boundary        2D classification visualization   │
+│  ├── Loss Landscape 3D        Three.js loss surface             │
+│  ├── CNN Pipeline Viewer      Step-by-step conv/pool/flatten    │
+│  └── Training Controls        Static, adaptive, step-by-step    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                    WebSocket (real-time updates)
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│                        Backend (Flask)                           │
+│  ├── neural_network.py        Dense networks (NumPy)            │
+│  ├── cnn_network.py           Conv2D, MaxPool, Flatten (NumPy)  │
+│  ├── problems.py              32 problem definitions            │
+│  └── learning_paths.py        7 guided learning paths           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Visualizations
+
+| Visualization | Description |
+|---------------|-------------|
+| **Network Diagram** | Interactive SVG showing neurons, connections, and weight magnitudes |
+| **Decision Boundary** | 2D plot showing how the network divides the input space |
+| **Loss Curve** | Real-time loss and accuracy over training epochs |
+| **3D Loss Landscape** | Three.js surface showing loss as a function of two weights |
+| **CNN Pipeline** | Step-by-step view: padding → convolution → ReLU → pooling → flatten → dense |
+| **Feature Maps** | Visual representation of what CNN filters detect |
+| **Weight Histogram** | Distribution of weights across layers |
+
+---
+
+## Training Modes
+
+**Static Training**
+- Fixed epochs and learning rate
+- Full control over hyperparameters
+- Good for understanding the effect of each parameter
+
+**Adaptive Training**
+- Automatically adjusts learning rate
+- Restarts with new weights if stuck in local minima
+- Targets ~99% accuracy or converged loss
+
+**Step-by-Step**
+- Single epoch at a time
+- Watch the network learn incrementally
+- Perfect for understanding the training process
+
+---
+
+## Network Configuration
+
+Configure network architecture via the UI or API:
+
+```json
+{
+  "layer_sizes": [2, 8, 4, 1],
+  "weight_init": "he",
+  "hidden_activation": "relu",
+  "use_biases": true
+}
+```
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `layer_sizes` | Array of integers | Neurons per layer (input → hidden → output) |
+| `weight_init` | `xavier`, `he`, `random`, `zeros` | Weight initialization strategy |
+| `hidden_activation` | `relu`, `sigmoid`, `tanh` | Activation function for hidden layers |
+| `use_biases` | `true`, `false` | Whether to include bias terms |
+
+---
+
+## Educational Philosophy
+
+This platform teaches neural networks through **progressive complexity** and **learning from failure**:
+
+1. **Start Simple** - Single neurons on logic gates (AND, OR) build intuition
+2. **Hit Walls** - XOR fails with no hidden layer, teaching *why* depth matters
+3. **See It Work** - Visualizations make abstract concepts concrete
+4. **Break Things** - Failure cases (Level 5) show what happens with bad hyperparameters
+5. **Build Intuition** - Prediction quizzes test understanding before training
 
 ---
 
