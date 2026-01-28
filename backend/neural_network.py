@@ -63,6 +63,9 @@ class NeuralNetwork:
         self.loss_history: list[float] = []
         self.accuracy_history: list[float] = []
 
+        # Gradient history for visualization
+        self.last_gradients: list[list[float]] = []
+
     def _initialize_weights(self) -> None:
         """Initialize weights based on selected method."""
         self.weights = []
@@ -272,6 +275,12 @@ class NeuralNetwork:
         for i in range(self.num_layers - 2, 0, -1):
             delta = np.dot(deltas[0], self.weights[i].T) * self._get_hidden_activation_derivative(activations[i])
             deltas.insert(0, delta)
+
+        # Store gradient magnitudes for visualization (per-neuron average)
+        self.last_gradients = []
+        for delta in deltas:
+            grad_magnitude = np.mean(np.abs(delta), axis=0)
+            self.last_gradients.append(grad_magnitude.tolist())
 
         # Update weights and biases
         for i in range(self.num_layers - 1):
@@ -581,6 +590,26 @@ class NeuralNetwork:
     # -------------------------------------------------------------------------
     # Utility Methods
     # -------------------------------------------------------------------------
+
+    def get_flat_weights(self) -> np.ndarray:
+        """Flatten all weights into a single vector for loss landscape visualization."""
+        return np.concatenate([w.flatten() for w in self.weights])
+
+    def set_flat_weights(self, flat: np.ndarray) -> None:
+        """Set weights from a flattened vector."""
+        idx = 0
+        for i, w in enumerate(self.weights):
+            size = w.size
+            self.weights[i] = flat[idx:idx + size].reshape(w.shape)
+            idx += size
+
+    def compute_loss(self, X: np.ndarray, y: np.ndarray) -> float:
+        """Compute loss for given data without training."""
+        output = self.predict(X)
+        if self.output_activation == 'softmax':
+            return self.cross_entropy_loss(output, y)
+        else:
+            return self.mse_loss(output, y)
 
     def get_weights(self) -> list[dict]:
         """Get all weights and biases for visualization."""

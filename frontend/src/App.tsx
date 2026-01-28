@@ -552,6 +552,7 @@ function App() {
                     currentEpoch={trainingProgress?.epoch}
                     trainingInProgress={trainingInProgress}
                     totalEpochs={networkState?.total_epochs}
+                    networkType={networkType}
                   />
                   <div className="mt-2 text-xs text-gray-500 text-center">
                     Drag to rotate | Scroll to zoom | Ball follows gradient descent
@@ -582,6 +583,7 @@ function App() {
                     : null
                 }
                 outputLabels={currentProblem?.output_labels ?? []}
+                trainingComplete={trainingComplete}
               />
             ) : (
               <NetworkVisualization
@@ -593,6 +595,7 @@ function App() {
                 outputActivation={currentProblem?.output_activation ?? 'sigmoid'}
                 trainingInProgress={trainingInProgress}
                 currentEpoch={trainingProgress?.epoch ?? 0}
+                gradients={trainingProgress?.gradients}
               />
             )}
             <div className="grid grid-cols-2 gap-3">

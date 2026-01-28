@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { DecisionSurface3D } from './DecisionSurface3D';
 
 // Animation configuration
 const TRANSITION_DURATION = 200; // ms for ink spread animation
@@ -38,6 +39,7 @@ export function DecisionBoundaryViz({
   const [error, setError] = useState<string | null>(null);
   const [showTrainingData, setShowTrainingData] = useState(true);
   const [showConfidence, setShowConfidence] = useState(false);
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoveredPoint, setHoveredPoint] = useState<{ x: number; y: number; pred: number } | null>(null);
 
@@ -357,6 +359,37 @@ export function DecisionBoundaryViz({
     return null;
   }
 
+  const is3DMode = viewMode === '3d';
+
+  // Render 3D view if selected
+  if (is3DMode) {
+    return (
+      <div className="space-y-2">
+        {/* View mode toggle */}
+        <div className="flex gap-1 bg-gray-900 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setViewMode('2d')}
+            className="px-3 py-1.5 text-xs font-medium rounded text-gray-400 hover:text-white"
+          >
+            2D Boundary
+          </button>
+          <button
+            onClick={() => setViewMode('3d')}
+            className="px-3 py-1.5 text-xs font-medium rounded bg-cyan-600 text-white"
+          >
+            3D Surface
+          </button>
+        </div>
+
+        <DecisionSurface3D
+          problemId={problemId}
+          trainingComplete={trainingComplete}
+          currentEpoch={currentEpoch}
+        />
+      </div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -369,6 +402,21 @@ export function DecisionBoundaryViz({
           Decision Boundary
         </h3>
         <div className="flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="flex gap-0.5 bg-gray-900 rounded p-0.5 mr-2">
+            <button
+              onClick={() => setViewMode('2d')}
+              className="px-2 py-0.5 text-xs rounded bg-cyan-600 text-white"
+            >
+              2D
+            </button>
+            <button
+              onClick={() => setViewMode('3d')}
+              className="px-2 py-0.5 text-xs rounded text-gray-400 hover:text-white"
+            >
+              3D
+            </button>
+          </div>
           <button
             onClick={() => setShowTrainingData(!showTrainingData)}
             className={`px-2 py-1 text-xs rounded ${

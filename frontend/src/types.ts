@@ -45,6 +45,7 @@ export interface TrainingProgress {
   epoch: number;
   loss: number;
   accuracy: number;
+  gradients?: number[][];  // Per-layer gradient magnitudes for visualization
 }
 
 export interface TrainingResult {
@@ -286,6 +287,7 @@ export interface StepProgressData {
   completedAt?: string;
   attempts: number;
   bestAccuracy: number;
+  hintsUsed: number;
 }
 
 export interface PathProgressData {

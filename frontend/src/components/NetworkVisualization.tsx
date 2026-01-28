@@ -22,6 +22,136 @@ const MARGIN = { top: 35, right: 50, bottom: 45, left: 50 };
 const CONTENT_WIDTH = VIEWBOX_WIDTH - MARGIN.left - MARGIN.right;
 const CONTENT_HEIGHT = VIEWBOX_HEIGHT - MARGIN.top - MARGIN.bottom;
 
+// Gradient flow visualization panel
+function GradientFlowPanel({
+  gradients,
+}: {
+  gradients: number[][];
+  layerSizes: number[];
+}) {
+  // Compute gradient statistics
+  const gradientStats = useMemo(() => {
+    return gradients.map((layerGrads, layerIdx) => {
+      const grads = layerGrads.flat();
+      const mean = grads.reduce((a, b) => a + b, 0) / grads.length;
+      const max = Math.max(...grads);
+      const min = Math.min(...grads);
+      return { layer: layerIdx, mean, max, min, values: grads };
+    });
+  }, [gradients]);
+
+  // Detect vanishing/exploding gradients
+  const warnings = useMemo(() => {
+    const result: { type: 'vanishing' | 'exploding'; layer: number; value: number }[] = [];
+
+    gradientStats.forEach(({ layer, mean, max }) => {
+      if (mean < 0.0001 && layer > 0) {
+        result.push({ type: 'vanishing', layer, value: mean });
+      }
+      if (max > 100) {
+        result.push({ type: 'exploding', layer, value: max });
+      }
+    });
+
+    return result;
+  }, [gradientStats]);
+
+  // Find max gradient for normalization
+  const maxGradient = useMemo(() => {
+    return Math.max(...gradientStats.map(s => s.max), 0.01);
+  }, [gradientStats]);
+
+  return (
+    <div className="mt-3 border-t border-gray-700/50 pt-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-xs">
+          <motion.span
+            animate={{ rotate: [0, -180, -360] }}
+            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+            className="text-orange-400"
+          >
+            ←
+          </motion.span>
+          <span className="text-gray-400 font-medium">Gradient Flow</span>
+        </div>
+        {warnings.length > 0 && (
+          <div className="flex gap-1">
+            {warnings.some(w => w.type === 'vanishing') && (
+              <span className="px-2 py-0.5 text-xs bg-amber-900/30 border border-amber-600/30 rounded text-amber-400">
+                ⚠️ Vanishing
+              </span>
+            )}
+            {warnings.some(w => w.type === 'exploding') && (
+              <span className="px-2 py-0.5 text-xs bg-red-900/30 border border-red-600/30 rounded text-red-400">
+                ⚠️ Exploding
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Gradient magnitude bars per layer */}
+      <div className="flex items-end justify-center gap-1 h-12">
+        {gradientStats.map(({ layer, mean, max }) => {
+          const normalizedMean = Math.min(mean / maxGradient, 1);
+          const normalizedMax = Math.min(max / maxGradient, 1);
+          const isVanishing = mean < 0.0001 && layer > 0;
+          const isExploding = max > 100;
+
+          // Color based on gradient health
+          let barColor = 'bg-cyan-500';
+          if (isVanishing) barColor = 'bg-amber-500';
+          if (isExploding) barColor = 'bg-red-500';
+
+          return (
+            <div
+              key={layer}
+              className="flex flex-col items-center gap-0.5"
+              title={`Layer ${layer + 1}: mean=${mean.toFixed(6)}, max=${max.toFixed(4)}`}
+            >
+              <div className="relative w-6 h-10 bg-gray-700 rounded overflow-hidden">
+                {/* Mean gradient bar */}
+                <motion.div
+                  className={`absolute bottom-0 left-0 right-0 ${barColor} opacity-80`}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${normalizedMean * 100}%` }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                />
+                {/* Max indicator line */}
+                <div
+                  className={`absolute left-0 right-0 h-0.5 ${barColor}`}
+                  style={{ bottom: `${normalizedMax * 100}%` }}
+                />
+              </div>
+              <span className="text-[8px] text-gray-500">
+                {layer === 0 ? 'H1' : layer === gradientStats.length - 1 ? 'Out' : `H${layer + 1}`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Educational note about warnings */}
+      {warnings.length > 0 && (
+        <div className="mt-2 p-2 bg-gray-800/50 rounded text-xs text-gray-400">
+          {warnings.some(w => w.type === 'vanishing') && (
+            <p>
+              <span className="text-amber-400 font-medium">Vanishing gradients:</span>{' '}
+              Early layers receive tiny updates. Try ReLU activation or smaller network depth.
+            </p>
+          )}
+          {warnings.some(w => w.type === 'exploding') && (
+            <p>
+              <span className="text-red-400 font-medium">Exploding gradients:</span>{' '}
+              Gradients are growing too large. Try lower learning rate or gradient clipping.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface NetworkVisualizationProps {
   layerSizes: number[];
   weights: LayerWeights[];
@@ -31,6 +161,7 @@ interface NetworkVisualizationProps {
   outputActivation?: 'sigmoid' | 'softmax';
   trainingInProgress?: boolean;
   currentEpoch?: number;
+  gradients?: number[][];  // Per-layer gradient magnitudes
 }
 
 interface TooltipData {
@@ -49,6 +180,7 @@ export const NetworkVisualization = memo(function NetworkVisualization({
   outputActivation = 'sigmoid',
   trainingInProgress = false,
   currentEpoch = 0,
+  gradients,
 }: NetworkVisualizationProps) {
 
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -1036,6 +1168,11 @@ export const NetworkVisualization = memo(function NetworkVisualization({
           </span>
         </div>
       </div>
+
+      {/* Gradient flow visualization */}
+      {gradients && gradients.length > 0 && trainingInProgress && (
+        <GradientFlowPanel gradients={gradients} layerSizes={layerSizes} />
+      )}
 
       {/* Legend */}
       <div className="mt-2 border-t border-gray-700/50 pt-2">

@@ -193,11 +193,17 @@ def training_callback(epoch: int, loss: float, accuracy: float):
 
     # Emit progress to frontend (throttled, but always emit first few epochs)
     if epoch < 5 or epoch % 10 == 0:
-        socketio.emit('training_progress', {
+        progress_data = {
             "epoch": epoch,
             "loss": loss,
             "accuracy": accuracy
-        })
+        }
+
+        # Include gradient info for visualization (only for dense networks)
+        if current_network_type == 'dense' and hasattr(nn, 'last_gradients') and nn.last_gradients:
+            progress_data["gradients"] = nn.last_gradients
+
+        socketio.emit('training_progress', progress_data)
 
 
 def stop_check() -> bool:
@@ -925,6 +931,181 @@ def get_decision_boundary():
         "training_data": {
             "inputs": X_train.tolist(),
             "labels": y_train.tolist()
+        }
+    })
+
+
+# -----------------------------------------------------------------------------
+# Visualization Endpoints
+# -----------------------------------------------------------------------------
+
+@app.route('/api/loss-landscape', methods=['POST'])
+def get_loss_landscape():
+    """
+    Sample actual loss values along 2 random directions in weight space.
+    Returns a grid of loss values for 3D visualization of the loss landscape.
+    """
+    if current_network_type != 'dense':
+        return jsonify({"error": "Loss landscape only available for dense networks"}), 400
+
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
+
+    resolution = data.get('resolution', 20)
+    range_val = data.get('range', 1.0)
+
+    # Clamp values
+    resolution = min(max(resolution, 5), 40)
+    range_val = min(max(range_val, 0.1), 5.0)
+
+    # Get current weights as center point
+    center_weights = nn.get_flat_weights()
+
+    # Generate 2 random directions (normalized)
+    np.random.seed(42)  # For reproducibility in same session
+    dir1 = np.random.randn(len(center_weights))
+    dir1 = dir1 / np.linalg.norm(dir1)
+    dir2 = np.random.randn(len(center_weights))
+    # Orthogonalize dir2 with respect to dir1
+    dir2 = dir2 - np.dot(dir2, dir1) * dir1
+    dir2 = dir2 / np.linalg.norm(dir2)
+
+    # Sample grid
+    losses = []
+    alphas = []
+    betas = []
+
+    for i in range(resolution):
+        row = []
+        alpha = (i / (resolution - 1) - 0.5) * 2 * range_val
+        alphas.append(alpha)
+        for j in range(resolution):
+            beta = (j / (resolution - 1) - 0.5) * 2 * range_val
+            if i == 0:
+                betas.append(beta)
+            test_weights = center_weights + alpha * dir1 + beta * dir2
+            nn.set_flat_weights(test_weights)
+            loss = nn.compute_loss(X_train, y_train)
+            row.append(float(loss))
+        losses.append(row)
+
+    # Restore original weights
+    nn.set_flat_weights(center_weights)
+
+    center_idx = resolution // 2
+    return jsonify({
+        'losses': losses,
+        'resolution': resolution,
+        'range': range_val,
+        'center_loss': losses[center_idx][center_idx],
+        'alphas': alphas,
+        'betas': betas
+    })
+
+
+@app.route('/api/gradcam', methods=['POST'])
+def get_gradcam():
+    """
+    Compute Grad-CAM heatmap for CNN input.
+    Returns a heatmap showing which parts of the input were most important.
+    """
+    if current_network_type != 'cnn':
+        return jsonify({"error": "Grad-CAM only available for CNN networks"}), 400
+
+    with state_lock:
+        if not system_state["training_complete"]:
+            return jsonify({"error": "Training not complete"}), 400
+
+    # Validate request body
+    data, err = get_json_body()
+    if err:
+        return jsonify({"error": err}), 400
+
+    inputs = data.get('inputs')
+    target_class = data.get('target_class')
+
+    if inputs is None:
+        return jsonify({"error": "inputs is required"}), 400
+
+    # Convert to numpy array
+    info = current_problem.info
+    grid = np.array(inputs, dtype=float)
+    if grid.ndim == 2:
+        grid = grid[:, :, np.newaxis]  # Add channel dimension
+    X = grid[np.newaxis, :, :, :]  # Add batch dimension
+
+    # Compute Grad-CAM
+    heatmap = nn.compute_gradcam(X, target_class)
+
+    if heatmap is None:
+        return jsonify({"error": "Could not compute Grad-CAM (no conv layers found)"}), 400
+
+    # Get prediction for context
+    output = nn.predict(X)
+    predicted_class = int(np.argmax(output[0]))
+    probabilities = output[0].tolist()
+
+    return jsonify({
+        'heatmap': heatmap,
+        'input_shape': list(X.shape[1:3]),
+        'target_class': target_class if target_class is not None else predicted_class,
+        'predicted_class': predicted_class,
+        'probabilities': probabilities,
+        'output_labels': info.output_labels
+    })
+
+
+@app.route('/api/decision-surface', methods=['GET'])
+def get_decision_surface():
+    """
+    Get 3D decision surface data for 2D input problems.
+    Returns prediction probabilities as a height map.
+    """
+    with state_lock:
+        if not system_state["training_complete"]:
+            return jsonify({"error": "Training not complete"}), 400
+
+    info = current_problem.info
+
+    # Only works for 2D input problems
+    if len(info.input_labels) != 2:
+        return jsonify({"error": "Decision surface only available for 2D input problems"}), 400
+
+    resolution = request.args.get('resolution', 30, type=int)
+    resolution = min(max(resolution, 10), 60)
+
+    # Generate grid
+    x = np.linspace(-1.5, 1.5, resolution)
+    y = np.linspace(-1.5, 1.5, resolution)
+    X_grid = np.array([[xi, yi] for yi in y for xi in x])
+
+    predictions = nn.predict(X_grid)
+
+    # For binary: probability of class 1
+    # For multi-class: max probability
+    if info.output_activation == 'softmax':
+        surface = np.max(predictions, axis=1)
+        pred_classes = np.argmax(predictions, axis=1).reshape(resolution, resolution)
+    else:
+        surface = predictions[:, 0]
+        pred_classes = (surface >= 0.5).astype(int).reshape(resolution, resolution)
+
+    surface = surface.reshape(resolution, resolution)
+
+    return jsonify({
+        'surface': surface.tolist(),
+        'classes': pred_classes.tolist(),
+        'x_range': [-1.5, 1.5],
+        'y_range': [-1.5, 1.5],
+        'resolution': resolution,
+        'problem_id': current_problem_id,
+        'category': info.category,
+        'output_labels': info.output_labels,
+        'training_data': {
+            'inputs': X_train[:, :2].tolist(),
+            'labels': y_train.tolist()
         }
     })
 

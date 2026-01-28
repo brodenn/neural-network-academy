@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { CNNFeatureMaps, NetworkArchitecture, LayerWeights } from '../types';
 import { CNNEducationalViz } from './CNNEducationalViz';
+import { GradCAMVisualization } from './GradCAMVisualization';
 
 interface FeatureMapVisualizationProps {
   inputGrid: number[][];
@@ -10,6 +11,7 @@ interface FeatureMapVisualizationProps {
   weights: LayerWeights[];
   prediction: number[] | null;
   outputLabels: string[];
+  trainingComplete?: boolean;
 }
 
 // Heatmap component for displaying 2D data
@@ -292,9 +294,11 @@ export function FeatureMapVisualization({
   weights,
   prediction,
   outputLabels,
+  trainingComplete = false,
 }: FeatureMapVisualizationProps) {
   const [showEducational, setShowEducational] = useState(false);
   const [showLearnHint, setShowLearnHint] = useState(true);
+  const [showGradCAM, setShowGradCAM] = useState(false);
 
   return (
     <div className="space-y-4">
@@ -406,6 +410,39 @@ export function FeatureMapVisualization({
       {/* Prediction output */}
       {prediction && prediction.length > 0 && (
         <PredictionBars prediction={prediction} labels={outputLabels} />
+      )}
+
+      {/* Grad-CAM toggle button */}
+      {trainingComplete && inputGrid && inputGrid.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={() => setShowGradCAM(!showGradCAM)}
+            className={`w-full py-2 text-sm font-medium rounded-lg transition-colors ${
+              showGradCAM
+                ? 'bg-orange-600 text-white hover:bg-orange-500'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {showGradCAM ? 'Hide Grad-CAM' : 'Show Grad-CAM (Interpretability)'}
+          </button>
+
+          <AnimatePresence>
+            {showGradCAM && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-2"
+              >
+                <GradCAMVisualization
+                  inputGrid={inputGrid}
+                  trainingComplete={trainingComplete}
+                  outputLabels={outputLabels}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       )}
     </div>
   );
