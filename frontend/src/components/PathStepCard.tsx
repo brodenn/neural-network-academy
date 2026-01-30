@@ -8,20 +8,41 @@ interface PathStepInfo {
   learningObjectives: string[];
   requiredAccuracy?: number;
   hints: string[];
+  isFinalStep?: boolean;
 }
 
 interface PathStepCardProps {
   step: PathStepInfo;
   progress: StepProgressData | null;
   isCurrentStep: boolean;
+  isFinalStep?: boolean;
 }
 
-export const PathStepCard = ({ step, progress, isCurrentStep }: PathStepCardProps) => {
+type Tier = 'gold' | 'silver' | 'bronze' | null;
+
+function getStepTier(progress: StepProgressData | null): Tier {
+  if (!progress?.completed) return null;
+  const acc = progress.bestAccuracy;
+  const attempts = progress.attempts;
+  if (acc >= 0.98 && attempts <= 2) return 'gold';
+  if (acc >= 0.95 && attempts <= 5) return 'silver';
+  return 'bronze';
+}
+
+const TIER_CONFIG = {
+  gold:   { icon: '🥇', label: 'Gold',   color: 'text-yellow-400', bg: 'bg-yellow-900/30 border-yellow-600/50' },
+  silver: { icon: '🥈', label: 'Silver', color: 'text-gray-300',   bg: 'bg-gray-700/50 border-gray-500/50' },
+  bronze: { icon: '🥉', label: 'Bronze', color: 'text-orange-400', bg: 'bg-orange-900/30 border-orange-600/50' },
+} as const;
+
+export const PathStepCard = ({ step, progress, isCurrentStep, isFinalStep }: PathStepCardProps) => {
   const isCompleted = progress?.completed ?? false;
   const isLocked = !(progress?.unlocked ?? false);
   const attempts = progress?.attempts ?? 0;
   const bestAccuracy = progress?.bestAccuracy ?? 0;
   const requiredAccuracy = step.requiredAccuracy ?? 0.95;
+  const tier = getStepTier(progress);
+  const isBoss = isFinalStep ?? step.isFinalStep ?? false;
 
   // Format accuracy as percentage
   const formatAccuracy = (acc: number) => `${(acc * 100).toFixed(0)}%`;
@@ -30,16 +51,27 @@ export const PathStepCard = ({ step, progress, isCurrentStep }: PathStepCardProp
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`bg-gray-800 rounded-lg p-4 border-2 ${
+      className={`rounded-lg p-4 border-2 relative overflow-hidden ${
+        isBoss && !isLocked && !isCompleted
+          ? 'bg-gradient-to-br from-gray-800 via-gray-800 to-red-950 border-red-600 shadow-lg shadow-red-900/20'
+          : 'bg-gray-800'
+      } ${
         isLocked
           ? 'border-gray-700 opacity-60'
           : isCompleted
-          ? 'border-green-600'
-          : isCurrentStep
+          ? tier === 'gold' ? 'border-yellow-500' : tier === 'silver' ? 'border-gray-400' : 'border-green-600'
+          : isCurrentStep && !isBoss
           ? 'border-blue-500'
-          : 'border-gray-600'
+          : !isBoss ? 'border-gray-600' : ''
       }`}
     >
+      {/* Boss battle banner */}
+      {isBoss && !isLocked && !isCompleted && (
+        <div className="absolute top-0 right-0 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg uppercase tracking-wider">
+          Final Challenge
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -47,8 +79,8 @@ export const PathStepCard = ({ step, progress, isCurrentStep }: PathStepCardProp
             isLocked
               ? 'bg-gray-700'
               : isCompleted
-              ? 'bg-green-600'
-              : 'bg-blue-600'
+              ? tier === 'gold' ? 'bg-yellow-600' : tier === 'silver' ? 'bg-gray-500' : 'bg-green-600'
+              : isBoss ? 'bg-red-600 animate-pulse' : 'bg-blue-600'
           }`}>
             {isLocked ? (
               <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -59,31 +91,34 @@ export const PathStepCard = ({ step, progress, isCurrentStep }: PathStepCardProp
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
+            ) : isBoss ? (
+              <span className="text-sm">⚔️</span>
             ) : (
               <span className="text-sm font-bold text-white">{step.stepNumber}</span>
             )}
           </div>
           <div>
-            <h3 className={`font-semibold ${isLocked ? 'text-gray-500' : 'text-white'}`}>
+            <h3 className={`font-semibold ${isLocked ? 'text-gray-500' : isBoss && !isCompleted ? 'text-red-300' : 'text-white'}`}>
               {step.title}
             </h3>
             <span className="text-xs text-gray-500">{step.problemId}</span>
           </div>
         </div>
 
-        {/* Status Badge */}
-        {isCompleted && (
+        {/* Status Badge with Tier */}
+        {isCompleted && tier && (
           <motion.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="bg-green-600 text-white text-xs px-2 py-1 rounded-full"
+            className={`text-xs px-2 py-1 rounded-full border flex items-center gap-1 ${TIER_CONFIG[tier].bg}`}
           >
-            Complete
+            <span>{TIER_CONFIG[tier].icon}</span>
+            <span className={TIER_CONFIG[tier].color}>{TIER_CONFIG[tier].label}</span>
           </motion.span>
         )}
         {isCurrentStep && !isCompleted && (
-          <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full animate-pulse">
-            Current
+          <span className={`text-white text-xs px-2 py-1 rounded-full ${isBoss ? 'bg-red-600 animate-pulse' : 'bg-blue-600 animate-pulse'}`}>
+            {isBoss ? 'Boss' : 'Current'}
           </span>
         )}
       </div>

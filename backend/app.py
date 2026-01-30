@@ -184,6 +184,15 @@ def make_prediction(inputs: list[float] | list[list[list[float]]]) -> dict:
 # Training Functions
 # -----------------------------------------------------------------------------
 
+def safe_emit(event: str, data: dict):
+    """Emit a socket event, ignoring errors if client disconnected."""
+    try:
+        socketio.emit(event, data)
+    except (BrokenPipeError, OSError):
+        # Client disconnected - ignore and continue
+        pass
+
+
 def training_callback(epoch: int, loss: float, accuracy: float):
     """Callback during training to emit progress."""
     with state_lock:
@@ -203,7 +212,7 @@ def training_callback(epoch: int, loss: float, accuracy: float):
         if current_network_type == 'dense' and hasattr(nn, 'last_gradients') and nn.last_gradients:
             progress_data["gradients"] = nn.last_gradients
 
-        socketio.emit('training_progress', progress_data)
+        safe_emit('training_progress', progress_data)
 
 
 def stop_check() -> bool:
@@ -236,7 +245,7 @@ def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, targ
         emit_data = {"mode": mode, "target_accuracy": system_state["target_accuracy"]}
     if forced_lr is not None:
         emit_data["forced_learning_rate"] = forced_lr
-    socketio.emit('training_started', emit_data)
+    safe_emit('training_started', emit_data)
 
     try:
         if mode == "static":
@@ -267,17 +276,17 @@ def run_training(mode: str, epochs: int = 1000, learning_rate: float = 0.1, targ
         # Check if stopped by user
         if result.get("stopped"):
             print("\nTraining stopped by user")
-            socketio.emit('training_stopped', result)
+            safe_emit('training_stopped', result)
         else:
             # Print all predictions in required format (G6)
             print_all_predictions()
-            socketio.emit('training_complete', result)
+            safe_emit('training_complete', result)
 
         return result
 
     except Exception as e:
         print(f"\nTraining error: {e}")
-        socketio.emit('training_error', {"error": str(e)})
+        safe_emit('training_error', {"error": str(e)})
         return {"error": str(e)}
 
     finally:

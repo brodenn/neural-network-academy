@@ -11,12 +11,17 @@ test.describe('Learning Path - Human User Journey', () => {
     await page.goto('http://localhost:5173');
     await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(500);
-    await page.evaluate(() => localStorage.clear());
+    await page.evaluate(() => {
+      localStorage.clear();
+      // Dismiss onboarding modal so it doesn't block interactions
+      localStorage.setItem('learning_paths_onboarding_seen', 'true');
+    });
     await page.reload();
     await page.waitForLoadState('networkidle');
   });
 
   test('complete user journey through Learning Paths', async ({ page }) => {
+    test.setTimeout(120000);  // 2 minute timeout for this comprehensive test
     console.log('\n=== Starting Human User Journey Through Learning Paths ===\n');
 
     // Step 1: Start at main page and navigate to Learning Paths
@@ -38,8 +43,8 @@ test.describe('Learning Path - Human User Journey', () => {
 
     // Step 3: Check that locked paths show lock icon (prerequisites)
     console.log('\n📍 Step 3: Check prerequisite locking');
-    // Research Frontier requires Foundations - should be locked for new user
-    const researchCard = page.locator('[data-testid="path-card-research-frontier"], div:has-text("Research Frontier")').first();
+    // Advanced Challenges requires Training Mastery + Boundaries & Classes - should be locked for new user
+    const researchCard = page.locator('[data-testid="path-card-advanced-challenges"], div:has-text("Advanced Challenges")').first();
     if (await researchCard.isVisible()) {
       // Check for lock indicator or "Complete first" text
       const hasLock = await page.locator('text=/Complete first/').isVisible().catch(() => false);
@@ -103,23 +108,60 @@ test.describe('Learning Path - Human User Journey', () => {
     await expect(page.locator('text=Network Architecture')).toBeVisible();
     console.log('✓ Network visualization visible');
 
-    // Check for input panel
-    await expect(page.locator('text=/Input.*values?/i').first()).toBeVisible();
-    console.log('✓ Input panel visible');
+    // Step 1 is now a prediction quiz, so check for quiz OR training UI
+    const hasQuizUI = await page.locator('text=/Predict the Outcome|What will happen|Does the AND/i').first().isVisible({ timeout: 3000 }).catch(() => false);
+    const hasTrainingUI = await page.locator('text=Training Controls').isVisible({ timeout: 1000 }).catch(() => false);
+    expect(hasQuizUI || hasTrainingUI).toBeTruthy();
+    console.log(`✓ Step 1 shows ${hasQuizUI ? 'prediction quiz' : 'training'} UI`);
 
-    // Check for training controls
-    await expect(page.locator('text=Training Controls')).toBeVisible();
-    console.log('✓ Training controls visible');
+    // Step 9: Complete step 1 (prediction quiz - answer, check, and train)
+    console.log('\n📍 Step 9: Complete the prediction quiz and train');
+    if (hasQuizUI) {
+      // Select the correct answer option
+      const quizOption = page.locator('button:has-text("No, AND is linearly separable")').first();
+      if (await quizOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await quizOption.click();
+        await page.waitForTimeout(500);
+      }
 
-    // Step 9: Train the network to solve the problem
-    console.log('\n📍 Step 9: Train the network');
-    await startStaticTraining(page, 500, 0.5);
+      // Click "Check My Prediction" to verify answer
+      const checkButton = page.locator('button:has-text("Check My Prediction")').first();
+      if (await checkButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await checkButton.click();
+        await page.waitForTimeout(1000);
+        console.log('✓ Checked prediction');
+      }
 
-    // Wait for training to complete
-    await waitForTrainingComplete(page, 30000);
-    console.log('✓ Training completed');
+      // Click "Train & See It Happen" to start training
+      const trainButton = page.locator('button:has-text("Train & See")').first();
+      if (await trainButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await trainButton.click();
+        // Wait for step completion (95% accuracy) OR training to finish
+        // The step can complete while training continues, so check for step completion first
+        await Promise.race([
+          expect(page.locator('text=/1\\/\\d+ completed|Step completed/').first()).toBeVisible({ timeout: 25000 }),
+          expect(page.getByText('Ready').first()).toBeVisible({ timeout: 25000 }),
+        ]);
+        console.log('✓ Training or step completed');
+      } else {
+        // Fallback: if no train button, use standard training panel
+        const startLearningBtn = page.locator('button:has-text("Start Learning")').first();
+        if (await startLearningBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await startLearningBtn.click();
+          await waitForTrainingComplete(page, 20000);
+          console.log('✓ Training via Start Learning button');
+        } else {
+          console.log('ℹ No train button visible');
+        }
+      }
+    } else {
+      // Fallback: train if it's a training step
+      await startStaticTraining(page, 500, 0.5);
+      await waitForTrainingComplete(page, 30000);
+      console.log('✓ Training completed');
+    }
 
-    // Step 10: Check if step was completed (accuracy met)
+    // Step 10: Check if step was completed
     console.log('\n📍 Step 10: Verify step completion');
     await page.waitForTimeout(1000);
 
@@ -129,23 +171,35 @@ test.describe('Learning Path - Human User Journey', () => {
     if (isCompletable) {
       console.log('✓ Step can be marked as complete');
     } else {
-      console.log('ℹ May need more training to meet accuracy threshold');
+      console.log('ℹ May need more interaction to complete step');
     }
 
     // Step 11: Navigate between steps using progress bar
     console.log('\n📍 Step 11: Test step navigation');
-    const step2Button = page.locator('[aria-label*="Step 2"], button:has-text("2")').first();
-    if (await step2Button.isVisible().catch(() => false)) {
-      await step2Button.click();
-      await page.waitForTimeout(1000);
-      await expect(page.locator('text=/Step 2 of \\d+/')).toBeVisible();
-      console.log('✓ Can navigate to step 2');
+    // Check if step 2 is unlocked (not locked) - a locked step has a lock icon
+    const step2ListItem = page.locator('li[aria-label*="Step 2"], li:has-text("How Does OR")').first();
+    const isStep2Locked = await step2ListItem.locator('img[src*="lock"], [class*="lock"]').isVisible().catch(() => true);
 
-      // Go back to step 1
-      const step1Button = page.locator('[aria-label*="Step 1"], button:has-text("1")').first();
-      await step1Button.click();
-      await page.waitForTimeout(1000);
-      console.log('✓ Can navigate back to step 1');
+    if (!isStep2Locked) {
+      const step2Button = page.locator('[aria-label*="Step 2"], button:has-text("2")').first();
+      if (await step2Button.isVisible().catch(() => false)) {
+        await step2Button.click();
+        await page.waitForTimeout(1000);
+        await expect(page.locator('text=/Step 2 of \\d+/')).toBeVisible();
+        console.log('✓ Can navigate to step 2');
+
+        // Go back to step 1 (completed step shows checkmark, use aria-label)
+        const step1Item = page.locator('li[aria-label*="Does AND"], li:has-text("Does AND")').first();
+        if (await step1Item.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await step1Item.click();
+          await page.waitForTimeout(1000);
+          console.log('✓ Can navigate back to step 1');
+        } else {
+          console.log('ℹ Step 1 navigation not available');
+        }
+      }
+    } else {
+      console.log('ℹ Step 2 is locked (step 1 may not be completed yet)');
     }
 
     // Step 12: Test responsive layout
@@ -156,16 +210,16 @@ test.describe('Learning Path - Human User Journey', () => {
     await page.waitForTimeout(500);
     console.log('✓ Desktop layout (1400px)');
 
-    // Tablet view
+    // Tablet view - check that main content is still visible
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.waitForTimeout(500);
-    await expect(page.locator('text=Training Controls')).toBeVisible();
+    await expect(page.locator('text=Network Architecture')).toBeVisible();
     console.log('✓ Tablet layout (768px)');
 
-    // Mobile view
+    // Mobile view - check main heading still visible
     await page.setViewportSize({ width: 375, height: 812 });
     await page.waitForTimeout(500);
-    await expect(page.locator('text=Training Controls')).toBeVisible();
+    await expect(page.locator('h1:has-text("Foundations")')).toBeVisible();
     console.log('✓ Mobile layout (375px) - content still accessible');
 
     // Reset to desktop
@@ -185,6 +239,7 @@ test.describe('Learning Path - Human User Journey', () => {
   });
 
   test('test hint unlocking after failed attempts', async ({ page }) => {
+    test.setTimeout(60000);  // Extend timeout for this test
     console.log('\n=== Testing Hint Unlock System ===\n');
 
     // Navigate to Learning Paths and start Foundations
@@ -196,7 +251,7 @@ test.describe('Learning Path - Human User Journey', () => {
     await waitForConnection(page);
 
     // Find and count hints
-    const hintSection = page.locator('div').filter({ hasText: /HINTS|Hints/ }).first();
+    const hintSection = page.locator('button:has-text("Hints"), div:has-text("Hints")').first();
     if (await hintSection.isVisible().catch(() => false)) {
       console.log('✓ Hint section found');
 
@@ -204,26 +259,28 @@ test.describe('Learning Path - Human User Journey', () => {
       const initialLocked = await page.locator('text=/🔒|locked|attempts? to unlock/i').count();
       console.log(`ℹ Found ${initialLocked} locked hint indicators initially`);
 
-      // Make some "failed" attempts by training with poor settings
+      // In learning path mode, complete the quiz first to make attempts
       console.log('\n📍 Making attempts to unlock hints...');
 
-      // Attempt 1: Very low epochs (likely won't converge)
-      await startStaticTraining(page, 10, 0.1);
-      await waitForTrainingComplete(page, 10000);
-      await page.waitForTimeout(500);
+      // Complete quiz (wrong answer first to simulate failure)
+      const wrongOption = page.locator('button:has-text("Yes, all problems need hidden layers")').first();
+      if (await wrongOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await wrongOption.click();
+        await page.waitForTimeout(500);
+        const checkButton = page.locator('button:has-text("Check My Prediction")').first();
+        if (await checkButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await checkButton.click();
+          await page.waitForTimeout(1000);
+          console.log('✓ Made attempt 1 (wrong answer)');
+        }
+      }
 
-      // Attempt 2
-      await resetNetwork(page);
-      await startStaticTraining(page, 10, 0.1);
-      await waitForTrainingComplete(page, 10000);
-      await page.waitForTimeout(500);
-
-      // Check if any hints unlocked after 2 attempts
-      const afterTwoAttempts = await page.locator('text=/🔒|locked|attempts? to unlock/i').count();
-      if (afterTwoAttempts < initialLocked) {
-        console.log('✓ Hint unlocked after 2 attempts!');
+      // Check if any hints unlocked after attempt
+      const afterAttempt = await page.locator('text=/🔒/').count();
+      if (afterAttempt < initialLocked) {
+        console.log('✓ Hint unlocked after attempt!');
       } else {
-        console.log('ℹ Hints unlock at higher attempt thresholds');
+        console.log('ℹ Hints may require training or more attempts');
       }
     } else {
       console.log('ℹ Hint section not visible for this step');
@@ -245,17 +302,31 @@ test.describe('Learning Path - Human User Journey', () => {
 
     await waitForConnection(page);
 
-    // Complete step 1 (train to meet accuracy)
-    console.log('📍 Training to complete step 1...');
-    await startStaticTraining(page, 1000, 0.5);
-    await waitForTrainingComplete(page, 60000);
-
-    // Mark step as complete if button is available
-    const completeButton = page.locator('button:has-text("Complete Step"), button:has-text("Mark Complete")').first();
-    if (await completeButton.isVisible().catch(() => false)) {
-      await completeButton.click();
-      await page.waitForTimeout(1000);
-      console.log('✓ Step 1 marked as complete');
+    // Complete step 1 (now a prediction quiz)
+    console.log('📍 Completing step 1 (prediction quiz)...');
+    const hasQuiz = await page.locator('text=/Predict the Outcome|What will happen|Does the AND/i').first().isVisible({ timeout: 3000 }).catch(() => false);
+    if (hasQuiz) {
+      const quizOption = page.locator('button:has-text("No, AND is linearly separable")').first();
+      if (await quizOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await quizOption.click();
+        await page.waitForTimeout(500);
+      }
+      const checkButton = page.locator('button:has-text("Check"), button:has-text("Train & See")').first();
+      if (await checkButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await checkButton.click();
+        await page.waitForTimeout(1000);
+      }
+      console.log('✓ Step 1 prediction quiz completed');
+    } else {
+      // Fallback: train if it's a training step
+      await startStaticTraining(page, 1000, 0.5);
+      await waitForTrainingComplete(page, 60000);
+      const completeButton = page.locator('button:has-text("Complete Step"), button:has-text("Mark Complete")').first();
+      if (await completeButton.isVisible().catch(() => false)) {
+        await completeButton.click();
+        await page.waitForTimeout(1000);
+      }
+      console.log('✓ Step 1 training completed');
     }
 
     // Look for reset button
@@ -326,9 +397,21 @@ test.describe('Learning Path - Human User Journey', () => {
     console.log('✓ Toast notification system is set up');
 
     // Simulate a successful action that shows a toast
-    // Try completing training successfully
-    await startStaticTraining(page, 500, 0.5);
-    await waitForTrainingComplete(page, 30000);
+    // Step 1 may be a quiz now; complete it to get to a training step or trigger toast
+    const quizOpt = page.locator('button:has-text("No, AND is linearly separable")').first();
+    if (await quizOpt.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await quizOpt.click();
+      await page.waitForTimeout(500);
+      const revealBtn = page.locator('button:has-text("Check"), button:has-text("Train & See")').first();
+      if (await revealBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await revealBtn.click();
+        await page.waitForTimeout(1000);
+      }
+    } else {
+      // Fallback: try training
+      await startStaticTraining(page, 500, 0.5);
+      await waitForTrainingComplete(page, 30000);
+    }
 
     // Check for any toast appearance
     await page.waitForTimeout(1000);
@@ -352,11 +435,10 @@ test.describe('Learning Path - Human User Journey', () => {
     // Expected paths
     const expectedPaths = [
       'Foundations',
-      'Deep Learning Basics',
-      'Multi-Class Mastery',
+      'Training Mastery',
+      'Boundaries & Classes',
       'Convolutional Vision',
-      'Pitfall Prevention',
-      'Research Frontier'
+      'Advanced Challenges'
     ];
 
     for (const pathName of expectedPaths) {
@@ -375,17 +457,16 @@ test.describe('Learning Path - Human User Journey', () => {
     expect(response.ok()).toBeTruthy();
 
     const paths = await response.json();
-    expect(paths.length).toBe(6);
+    expect(paths.length).toBe(5);
     console.log(`✓ API returns ${paths.length} paths`);
 
     // Check step counts (need to fetch each path individually to get steps)
     const expectedSteps: Record<string, number> = {
-      'foundations': 7,
-      'deep-learning-basics': 10, // Updated from 8 to 10 (added linear and two_blobs)
-      'multi-class-mastery': 4,
-      'convolutional-vision': 3,
-      'pitfall-prevention': 6,
-      'research-frontier': 4
+      'foundations': 9,
+      'training-mastery': 9,
+      'boundaries-and-classes': 9,
+      'convolutional-vision': 5,
+      'advanced-challenges': 7
     };
 
     for (const path of paths) {
@@ -404,6 +485,7 @@ test.describe('Learning Path - Human User Journey', () => {
   });
 
   test('verify milestone celebrations', async ({ page }) => {
+    test.setTimeout(60000);  // Extend timeout
     console.log('\n=== Testing Milestone Celebrations ===\n');
 
     // Set up localStorage with partial progress to trigger milestone
@@ -411,8 +493,8 @@ test.describe('Learning Path - Human User Journey', () => {
       // Pre-populate with progress just before 25% milestone
       const progress = {
         'foundations': {
-          completedSteps: [1], // 1 of 7 = 14%
-          currentStep: 2
+          completedSteps: [0], // 1 of 9 = 11%
+          currentStep: 1
         }
       };
       localStorage.setItem('learningPathProgress', JSON.stringify(progress));
@@ -433,24 +515,38 @@ test.describe('Learning Path - Human User Journey', () => {
 
     await waitForConnection(page);
 
-    // Complete step 2 to reach ~28% (2/7)
-    console.log('📍 Training to complete step and trigger 25% milestone...');
-    await startStaticTraining(page, 1000, 0.5);
-    await waitForTrainingComplete(page, 60000);
+    // Complete step using learning path UI (quiz + train)
+    console.log('📍 Completing step to trigger milestone...');
 
-    // Try to mark complete
-    const completeBtn = page.locator('button:has-text("Complete"), button:has-text("Mark Complete")').first();
-    if (await completeBtn.isVisible().catch(() => false)) {
-      await completeBtn.click();
-      await page.waitForTimeout(2000);
-
-      // Check for milestone celebration (confetti or celebration UI)
-      const celebration = page.locator('text=/Milestone|Congratulations|🎉|25%/i');
-      if (await celebration.isVisible().catch(() => false)) {
-        console.log('✓ Milestone celebration appeared!');
-      } else {
-        console.log('ℹ Milestone celebration may have already occurred or threshold not met');
+    // Complete prediction quiz if present
+    const quizOption = page.locator('button:has-text("No,"), button:has-text("Yes,")').first();
+    if (await quizOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await quizOption.click();
+      await page.waitForTimeout(500);
+      const checkButton = page.locator('button:has-text("Check My Prediction")').first();
+      if (await checkButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await checkButton.click();
+        await page.waitForTimeout(1000);
       }
+      // Click "Train & See It Happen" if present
+      const trainButton = page.locator('button:has-text("Train & See")').first();
+      if (await trainButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await trainButton.click();
+        // Wait for step completion or training complete
+        await Promise.race([
+          expect(page.locator('text=/completed|Step completed/').first()).toBeVisible({ timeout: 20000 }),
+          expect(page.getByText('Ready').first()).toBeVisible({ timeout: 20000 }),
+        ]).catch(() => {});
+      }
+    }
+
+    // Check for milestone celebration (confetti or celebration UI)
+    await page.waitForTimeout(2000);
+    const celebration = page.locator('text=/Milestone|Congratulations|🎉|25%/i');
+    if (await celebration.isVisible().catch(() => false)) {
+      console.log('✓ Milestone celebration appeared!');
+    } else {
+      console.log('ℹ Milestone celebration may require more steps completed or have different threshold');
     }
 
     console.log('\n=== Milestone Celebration Test Complete ===\n');

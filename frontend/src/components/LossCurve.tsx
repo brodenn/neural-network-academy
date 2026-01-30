@@ -240,6 +240,7 @@ export const LossCurve = memo(function LossCurve({
           {trainingComplete && lossHistory.length > 10 && (
             <button
               onClick={() => setShowScrubber(!showScrubber)}
+              aria-label="Timeline"
               className={`px-2 py-1 text-xs rounded transition-colors ${
                 showScrubber ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-gray-300'
               }`}

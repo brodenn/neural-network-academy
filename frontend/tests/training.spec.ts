@@ -313,12 +313,9 @@ test.describe('Training Flows', () => {
     const epochsInput = page.locator('input[type="number"]').first();
     await epochsInput.fill('500');
     await page.getByRole('button', { name: 'Train Static' }).click();
-    await expect(page.locator('span').filter({ hasText: 'Training...' }).first()).toBeVisible({ timeout: 5000 });
 
-    // Wait for training
-    await page.waitForTimeout(15000);
-
-    await stopTraining(page);
+    // Wait for training to complete - don't check for transient "Training..." state since it may finish too fast
+    await expect(page.getByText('Ready').first()).toBeVisible({ timeout: 40000 });
 
     // Check that training occurred
     const accuracy = await getCurrentAccuracy(page);

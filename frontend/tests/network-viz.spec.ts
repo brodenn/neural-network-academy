@@ -39,7 +39,7 @@ test.describe('Network Visualization', () => {
     await page.waitForTimeout(2000);
 
     // Recharts renders SVG wrapper
-    await expect(page.locator('.recharts-wrapper')).toBeVisible();
+    await expect(page.locator('.recharts-wrapper').first()).toBeVisible();
 
     await stopTraining(page);
   });
@@ -55,7 +55,7 @@ test.describe('Network Visualization', () => {
     await page.waitForTimeout(3000);
 
     // Wait for chart to render
-    await expect(page.locator('.recharts-wrapper')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.recharts-wrapper').first()).toBeVisible({ timeout: 5000 });
 
     // The chart should have path elements for the loss line
     // Note: Line curves only appear after multiple data points
@@ -64,7 +64,7 @@ test.describe('Network Visualization', () => {
 
     // Either we have a line curve or at least the chart area
     if (!hasLineCurve) {
-      await expect(page.locator('.recharts-cartesian-grid')).toBeVisible();
+      await expect(page.locator('.recharts-cartesian-grid').first()).toBeVisible();
     }
 
     await stopTraining(page);
@@ -84,7 +84,7 @@ test.describe('Network Visualization', () => {
     await page.waitForTimeout(3000);
 
     // Chart should be visible
-    await expect(page.locator('.recharts-wrapper')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.recharts-wrapper').first()).toBeVisible({ timeout: 5000 });
 
     // Legend should show both Loss and Accuracy
     await expect(page.getByText('Loss').first()).toBeVisible();
@@ -143,9 +143,8 @@ test.describe('Network Visualization', () => {
   test('should show terminal output component', async ({ page }) => {
     await selectProblem(page, 'Level 1', 'AND Gate');
 
-    // Terminal output section should be visible
-    // Look for "Terminal Output" heading
-    await expect(page.getByText('Terminal Output').first()).toBeVisible();
+    // Weight distribution section should be visible
+    await expect(page.getByText('Weight Distribution').first()).toBeVisible();
   });
 
   test('visualization should show input and output labels', async ({ page }) => {

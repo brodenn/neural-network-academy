@@ -29,35 +29,64 @@ export const PathCompletionModal = ({
   onBackToPaths,
   onClose
 }: PathCompletionModalProps) => {
+  // Path-themed emoji confetti
+  const PATH_EMOJIS: Record<string, string[]> = {
+    'Foundations':             ['🏆', '🧱', '🎯', '✨'],
+    'Deep Learning Basics':   ['🧠', '📊', '🔬', '💡'],
+    'Multi-Class Mastery':    ['🎨', '🌈', '🎯', '✨'],
+    'Convolutional Vision':   ['👁️', '📷', '🔍', '🖼️'],
+    'Pitfall Prevention':     ['🛡️', '🐛', '🔧', '💪'],
+    'Research Frontier':      ['🚀', '🌟', '🔬', '🧪'],
+    'Interactive Fundamentals': ['🎮', '🕹️', '⚡', '🎯'],
+  };
+
   // Trigger confetti effect when modal opens
   useEffect(() => {
     if (isOpen) {
-      // Simple confetti using CSS animations (no external library needed)
       const confettiContainer = document.getElementById('confetti-container');
       if (confettiContainer) {
-        // Clear previous confetti
         confettiContainer.innerHTML = '';
-        // Create confetti pieces
+
+        // Get themed emojis for this path, falling back to generic colors
+        const emojis = PATH_EMOJIS[pathName] ?? ['🎉', '✨', '🌟', '🎊'];
         const colors = ['#22c55e', '#3b82f6', '#eab308', '#ec4899', '#8b5cf6'];
-        for (let i = 0; i < 50; i++) {
-          const confetti = document.createElement('div');
-          confetti.className = 'confetti-piece';
-          confetti.style.cssText = `
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background: ${colors[Math.floor(Math.random() * colors.length)]};
-            left: ${Math.random() * 100}%;
-            top: -10px;
-            animation: confetti-fall ${2 + Math.random() * 2}s linear forwards;
-            animation-delay: ${Math.random() * 0.5}s;
-            transform: rotate(${Math.random() * 360}deg);
-          `;
-          confettiContainer.appendChild(confetti);
+
+        for (let i = 0; i < 60; i++) {
+          const piece = document.createElement('div');
+          const isEmoji = i < 20; // First 20 pieces are emojis, rest are colored squares
+          piece.className = 'confetti-piece';
+
+          if (isEmoji) {
+            piece.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+            piece.style.cssText = `
+              position: absolute;
+              font-size: ${14 + Math.random() * 10}px;
+              left: ${Math.random() * 100}%;
+              top: -30px;
+              animation: confetti-fall ${2 + Math.random() * 2}s linear forwards;
+              animation-delay: ${Math.random() * 0.8}s;
+              transform: rotate(${Math.random() * 360}deg);
+              pointer-events: none;
+            `;
+          } else {
+            piece.style.cssText = `
+              position: absolute;
+              width: ${6 + Math.random() * 8}px;
+              height: ${6 + Math.random() * 8}px;
+              background: ${colors[Math.floor(Math.random() * colors.length)]};
+              left: ${Math.random() * 100}%;
+              top: -10px;
+              animation: confetti-fall ${2 + Math.random() * 2}s linear forwards;
+              animation-delay: ${Math.random() * 0.5}s;
+              transform: rotate(${Math.random() * 360}deg);
+              border-radius: ${Math.random() > 0.5 ? '50%' : '2px'};
+            `;
+          }
+          confettiContainer.appendChild(piece);
         }
       }
     }
-  }, [isOpen]);
+  }, [isOpen, pathName]);
 
   return (
     <AnimatePresence>
@@ -118,7 +147,7 @@ export const PathCompletionModal = ({
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
-                className="grid grid-cols-3 gap-4 mb-6"
+                className="grid grid-cols-4 gap-3 mb-6"
               >
                 <div className="bg-gray-900/50 rounded-lg p-3 text-center">
                   <div className="text-2xl font-bold text-green-400">{stats.totalSteps}</div>
@@ -133,6 +162,17 @@ export const PathCompletionModal = ({
                     {(stats.avgAccuracy * 100).toFixed(0)}%
                   </div>
                   <div className="text-xs text-gray-500">Avg Accuracy</div>
+                </div>
+                <div className="bg-gray-900/50 rounded-lg p-3 text-center">
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', delay: 0.7 }}
+                    className="text-2xl font-bold text-indigo-400"
+                  >
+                    +200
+                  </motion.div>
+                  <div className="text-xs text-gray-500">XP Earned</div>
                 </div>
               </motion.div>
 

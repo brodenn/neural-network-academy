@@ -367,14 +367,15 @@ test.describe('3D Decision Surface', () => {
   test('should show 2D/3D toggle for 2D problems', async ({ page }) => {
     test.setTimeout(60000);
 
-    await selectProblem(page, 'Level 3', 'Circle');
+    // Use Two Blobs - simpler and trains faster than Circle
+    await selectProblem(page, 'Level 3', 'Two Blobs');
 
-    // Train the network
+    // Train the network with fewer epochs
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('200');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
 
-    await waitForTrainingComplete(page, 40000);
+    await waitForTrainingComplete(page, 30000);
     await page.waitForTimeout(1000);
 
     // Should show the 2D/3D toggle buttons
@@ -386,15 +387,16 @@ test.describe('3D Decision Surface', () => {
   });
 
   test('should switch to 3D surface view', async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(60000);
 
-    await selectProblem(page, 'Level 3', 'Circle');
+    // Use Two Blobs - simpler and trains faster than Circle
+    await selectProblem(page, 'Level 3', 'Two Blobs');
 
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('300');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
 
-    await waitForTrainingComplete(page, 60000);
+    await waitForTrainingComplete(page, 30000);
     await page.waitForTimeout(1000);
 
     // Click 3D toggle via JavaScript to bypass viewport issues
@@ -409,15 +411,16 @@ test.describe('3D Decision Surface', () => {
   });
 
   test('should show Points/Contours/Rotate buttons in 3D view', async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(60000);
 
-    await selectProblem(page, 'Level 3', 'Circle');
+    // Use Two Blobs - simpler and trains faster than Circle
+    await selectProblem(page, 'Level 3', 'Two Blobs');
 
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('200');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
 
-    await waitForTrainingComplete(page, 60000);
+    await waitForTrainingComplete(page, 30000);
     await page.waitForTimeout(1000);
 
     await click3DToggle(page);
@@ -430,15 +433,16 @@ test.describe('3D Decision Surface', () => {
   });
 
   test('should show educational explanation in 3D view', async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(60000);
 
-    await selectProblem(page, 'Level 3', 'Circle');
+    // Use Two Blobs - simpler and trains faster
+    await selectProblem(page, 'Level 3', 'Two Blobs');
 
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('200');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
 
-    await waitForTrainingComplete(page, 60000);
+    await waitForTrainingComplete(page, 30000);
     await page.waitForTimeout(1000);
 
     await click3DToggle(page);
@@ -449,15 +453,16 @@ test.describe('3D Decision Surface', () => {
   });
 
   test('should switch back to 2D view', async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(60000);
 
-    await selectProblem(page, 'Level 3', 'Circle');
+    // Use Two Blobs - simpler and trains faster
+    await selectProblem(page, 'Level 3', 'Two Blobs');
 
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('200');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
 
-    await waitForTrainingComplete(page, 60000);
+    await waitForTrainingComplete(page, 30000);
     await page.waitForTimeout(1000);
 
     await click3DToggle(page);
@@ -491,15 +496,15 @@ test.describe('3D Decision Surface', () => {
   });
 
   test('should show class legend in 3D view', async ({ page }) => {
-    test.setTimeout(90000);
+    test.setTimeout(60000);
 
     await selectProblem(page, 'Level 3', 'Two Blobs');
 
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('200');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
 
-    await waitForTrainingComplete(page, 60000);
+    await waitForTrainingComplete(page, 30000);
     await page.waitForTimeout(1000);
 
     await click3DToggle(page);
@@ -549,11 +554,12 @@ test.describe('Visualization API Endpoints', () => {
   test('/api/decision-surface should return surface data for 2D problems', async ({ page, request }) => {
     test.setTimeout(60000);
 
-    await selectProblem(page, 'Level 3', 'Circle');
+    // Use Two Blobs - simpler and trains faster than Circle
+    await selectProblem(page, 'Level 3', 'Two Blobs');
     const epochsInput = page.locator('input[type="number"]').first();
-    await epochsInput.fill('200');
+    await epochsInput.fill('100');
     await page.getByRole('button', { name: 'Train Static' }).click();
-    await waitForTrainingComplete(page, 40000);
+    await waitForTrainingComplete(page, 30000);
 
     const response = await request.get('http://localhost:5000/api/decision-surface?resolution=15');
 

@@ -21,7 +21,8 @@ import { getRichHintsForProblem, getExperimentsForProblem } from '../data/richHi
 import { NetworkBuilder } from './NetworkBuilder';
 import { PredictionQuiz, PREDICTION_QUIZZES } from './PredictionQuiz';
 import { DebugChallenge, DEBUG_CHALLENGES } from './DebugChallenge';
-import type { StepType, BuildChallengeData, PredictionQuizData, DebugChallengeData } from '../types';
+import { TuningChallenge, TUNING_CHALLENGES } from './TuningChallenge';
+import type { StepType, BuildChallengeData, PredictionQuizData, DebugChallengeData, TuningChallengeData } from '../types';
 
 // Milestone thresholds
 const MILESTONES = [25, 50, 75] as const;
@@ -54,6 +55,7 @@ interface PathStep {
   buildChallenge?: BuildChallengeData;
   predictionQuiz?: PredictionQuizData;
   debugChallenge?: DebugChallengeData;
+  tuningChallenge?: TuningChallengeData;
 }
 
 interface PathDetailData {
@@ -216,6 +218,7 @@ export const PathDetailView = ({
   const storeCompleteStep = useLearningStore(state => state.completeStep);
   const storeRecordAttempt = useLearningStore(state => state.recordAttempt);
   const storeInitializePath = useLearningStore(state => state.initializePath);
+  const storeResetPath = useLearningStore(state => state.resetPath);
 
   // Reset confirmation state
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -576,7 +579,19 @@ export const PathDetailView = ({
       await handleArchitectureChange(architecture, {});
       setChallengeCompleted(true);
       setShowTrainingAfterChallenge(true);
-      showToast('Architecture submitted! Now train to see the result.', 'success');
+      showToast('Architecture accepted! Step complete!', 'success');
+      // Auto-complete the step - the challenge IS designing the architecture
+      if (pathData && currentStepNum <= pathData.steps.length) {
+        completeStepInStorage(pathId, currentStepNum, 1.0);
+        storeCompleteStep(pathId, currentStepNum, 1.0);
+        const updatedProgress = getPathProgress(pathId);
+        if (updatedProgress) {
+          dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+          if (currentStepNum === pathData.steps.length) {
+            dispatch({ type: 'PATH_COMPLETED' });
+          }
+        }
+      }
     } catch {
       showToast('Failed to apply architecture.', 'error');
     }
@@ -602,6 +617,9 @@ export const PathDetailView = ({
         const updatedProgress = getPathProgress(pathId);
         if (updatedProgress) {
           dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+          if (currentStepNum === pathData.steps.length) {
+            dispatch({ type: 'PATH_COMPLETED' });
+          }
         }
       }
     }
@@ -623,6 +641,11 @@ export const PathDetailView = ({
       await handleArchitectureChange([2, 4, 1], { weight_init: 'xavier' });
     } else if (fixId === 'lr') {
       // Reset for proper LR - will be handled by training panel
+    } else if (fixId === 'activation') {
+      // Fix for vanishing_gradients: switch deep sigmoid network to ReLU
+      // Also fix for wrong_activation: switch sigmoid to ReLU for regression
+      const currentArch = networkState?.architecture?.layer_sizes ?? [2, 8, 8, 8, 8, 1];
+      await handleArchitectureChange(currentArch, { hidden_activation: 'relu' });
     }
     // Mark step as complete
     if (pathData) {
@@ -631,23 +654,53 @@ export const PathDetailView = ({
       const updatedProgress = getPathProgress(pathId);
       if (updatedProgress) {
         dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+        if (currentStepNum === pathData.steps.length) {
+          dispatch({ type: 'PATH_COMPLETED' });
+        }
       }
     }
   };
 
   const handleResetPath = async () => {
     try {
-      // Validate with backend
       const res = await fetch(`${API_URL}/api/paths/${pathId}/reset`, { method: 'POST' });
       if (!res.ok) throw new Error('Reset validation failed');
 
-      // Reset localStorage
+      // Reset localStorage progress
       resetPath(pathId);
 
-      showToast('Path progress reset! Reloading...', 'success');
+      // Reset Zustand store
+      storeResetPath(pathId);
 
-      // Reload the path from scratch after a brief delay
-      setTimeout(() => window.location.reload(), 500);
+      // Re-initialize progress from scratch
+      if (pathData) {
+        const stepConfigs = pathData.steps.map((s) => ({
+          stepNumber: s.stepNumber,
+          problemId: s.problemId,
+        }));
+        const freshProgress = initializePath(pathId, stepConfigs);
+        storeInitializePath(pathId, stepConfigs);
+
+        // Reset reducer state to step 1 with fresh progress
+        dispatch({
+          type: 'LOAD_SUCCESS',
+          pathData,
+          stepsProgress: freshProgress.steps,
+          currentStep: 1,
+        });
+
+        // Reset local component state
+        setChallengeCompleted(false);
+        setShowTrainingAfterChallenge(false);
+        hasProcessedCompletionRef.current = false;
+        setCelebratedMilestones(new Set());
+        setCurrentMilestone(null);
+
+        // Re-select the first step's problem
+        await selectProblem(pathData.steps[0].problemId);
+      }
+
+      showToast('Path progress reset!', 'success');
     } catch (err) {
       console.error('Path reset error:', err);
       showToast('Failed to reset path. Please try again.', 'error');
@@ -770,6 +823,7 @@ export const PathDetailView = ({
               step={currentStep}
               progress={stepProgress ?? null}
               isCurrentStep={true}
+              isFinalStep={currentStepNum === pathData.steps.length}
             />
           )}
 
@@ -874,9 +928,61 @@ export const PathDetailView = ({
             })()
           )}
 
+          {/* TUNING CHALLENGE STEP */}
+          {currentStep?.stepType === 'tuning_challenge' && currentStep.tuningChallenge && !showTrainingAfterChallenge && (
+            (() => {
+              const tuningId = currentStep.tuningChallenge!.parameter as keyof typeof TUNING_CHALLENGES;
+              // Use the tuningChallenge.parameter as the challenge ID lookup
+              const challengeEntry = TUNING_CHALLENGES[tuningId];
+              if (!challengeEntry) return null;
+              return (
+                <TuningChallenge
+                  challengeId={tuningId}
+                  onSolved={(success) => {
+                    if (success) {
+                      // Only complete the step on actual success
+                      setChallengeCompleted(true);
+                      setShowTrainingAfterChallenge(true);
+                      if (pathData && currentStepNum <= pathData.steps.length) {
+                        completeStepInStorage(pathId, currentStepNum, 1.0);
+                        storeCompleteStep(pathId, currentStepNum, 1.0);
+                        const updatedProgress = getPathProgress(pathId);
+                        if (updatedProgress) {
+                          dispatch({ type: 'STEP_COMPLETED', stepNum: currentStepNum, stepsProgress: updatedProgress.steps });
+                          if (currentStepNum === pathData.steps.length) {
+                            dispatch({ type: 'PATH_COMPLETED' });
+                          }
+                        }
+                      }
+                      showToast('Target reached! Step complete!', 'success');
+                    } else {
+                      // Failed — don't complete the step, let user retry
+                      showToast('Not quite! Adjust your value and try again.', 'info');
+                    }
+                  }}
+                  onTrain={async (config) => {
+                    await handleArchitectureChange(config.architecture, {});
+                  }}
+                />
+              );
+            })()
+          )}
+
           {/* TRAINING STEP (default) or after challenge completion */}
           {(currentStep?.stepType === 'training' || !currentStep?.stepType || showTrainingAfterChallenge) && (
             <>
+              {/* Show "Step Complete" banner when training is optional post-challenge exploration */}
+              {showTrainingAfterChallenge && (
+                <div className="bg-green-900/30 border border-green-600/50 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-green-300 font-medium">Step Complete!</span>
+                    <span className="text-gray-400 text-sm ml-1">Train below to explore (optional)</span>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <InputPanel
                   problem={currentProblem}

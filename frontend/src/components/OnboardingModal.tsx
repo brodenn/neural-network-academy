@@ -142,13 +142,13 @@ export const OnboardingModal = ({ onSelectPath }: OnboardingModalProps) => {
             </button>
 
             <button
-              onClick={() => handleStartPath('deep-learning-basics')}
+              onClick={() => handleStartPath('training-mastery')}
               className="w-full p-4 bg-gray-700 rounded-lg text-left hover:bg-gray-600 transition-colors group"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-lg font-semibold text-white">Deep Learning Basics</span>
-                  <p className="text-sm text-gray-400 mt-1">For those who know logic gates</p>
+                  <span className="text-lg font-semibold text-white">Training Mastery</span>
+                  <p className="text-sm text-gray-400 mt-1">For those who know the basics</p>
                 </div>
                 <svg className="w-5 h-5 text-gray-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -157,13 +157,13 @@ export const OnboardingModal = ({ onSelectPath }: OnboardingModalProps) => {
             </button>
 
             <button
-              onClick={() => handleStartPath('pitfall-prevention')}
+              onClick={() => handleStartPath('advanced-challenges')}
               className="w-full p-4 bg-gray-700 rounded-lg text-left hover:bg-gray-600 transition-colors group"
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-lg font-semibold text-white">Pitfall Prevention</span>
-                  <p className="text-sm text-gray-400 mt-1">Learn from common mistakes</p>
+                  <span className="text-lg font-semibold text-white">Advanced Challenges</span>
+                  <p className="text-sm text-gray-400 mt-1">Tackle depth, gradients, and complex boundaries</p>
                 </div>
                 <svg className="w-5 h-5 text-gray-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

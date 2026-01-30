@@ -19,12 +19,12 @@ const ACHIEVEMENTS: Achievement[] = [
   { id: 'all_foundations', name: 'Foundation Builder', description: 'Complete the Foundations path', icon: '🏗️', category: 'milestone' },
 
   // Skill achievements
-  { id: 'perfect_accuracy', name: 'Perfectionist', description: 'Achieve 100% accuracy on any step', icon: '💯', category: 'skill' },
-  { id: 'speed_learner', name: 'Speed Learner', description: 'Complete a step in under 3 attempts', icon: '⚡', category: 'skill' },
-  { id: 'hint_free', name: 'Self Sufficient', description: 'Complete a step without using hints', icon: '🧠', category: 'skill' },
+  { id: 'perfect_accuracy', name: 'Perfectionist', description: 'Achieve 100% accuracy on 5 different steps', icon: '💯', category: 'skill' },
+  { id: 'speed_learner', name: 'Speed Learner', description: 'Complete 5 steps in under 3 attempts each', icon: '⚡', category: 'skill' },
+  { id: 'hint_free', name: 'Self Sufficient', description: 'Complete 5 steps without using hints', icon: '🧠', category: 'skill' },
 
   // Challenge achievements
-  { id: 'failure_master', name: 'Learning from Failure', description: 'Complete the Pitfall Prevention path', icon: '📚', category: 'challenge' },
+  { id: 'failure_master', name: 'Learning from Failure', description: 'Complete the Advanced Challenges path', icon: '📚', category: 'challenge' },
   { id: 'cnn_expert', name: 'Vision Expert', description: 'Complete the Convolutional Vision path', icon: '👁️', category: 'challenge' },
 
   // Streak achievements
@@ -32,6 +32,56 @@ const ACHIEVEMENTS: Achievement[] = [
   { id: 'streak_7', name: 'Dedicated', description: 'Maintain a 7-day streak', icon: '🔥🔥', category: 'streak' },
   { id: 'streak_30', name: 'Unstoppable', description: 'Maintain a 30-day streak', icon: '🌟', category: 'streak' },
 ];
+
+// XP and Leveling
+const XP_REWARDS = {
+  STEP_COMPLETE: 50,
+  FIRST_TRY_BONUS: 30,
+  PERFECT_ACCURACY: 25,
+  QUIZ_CORRECT: 20,
+  PATH_COMPLETE: 200,
+  STREAK_DAILY: 10,
+} as const;
+
+const LEVEL_THRESHOLDS = [
+  { level: 1, xp: 0, title: 'Novice' },
+  { level: 2, xp: 100, title: 'Learner' },
+  { level: 3, xp: 250, title: 'Apprentice' },
+  { level: 4, xp: 500, title: 'Practitioner' },
+  { level: 5, xp: 800, title: 'Adept' },
+  { level: 6, xp: 1200, title: 'Expert' },
+  { level: 7, xp: 1800, title: 'Master' },
+  { level: 8, xp: 2500, title: 'Grandmaster' },
+  { level: 9, xp: 3500, title: 'Sage' },
+  { level: 10, xp: 5000, title: 'Legend' },
+] as const;
+
+interface LevelInfo {
+  level: number;
+  title: string;
+  xp: number;
+  xpInLevel: number;
+  xpForNextLevel: number;
+  progress: number;
+  isMax: boolean;
+}
+
+export function getLevelInfo(xp: number): LevelInfo {
+  let currentIdx = 0;
+  for (let i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (xp >= LEVEL_THRESHOLDS[i].xp) {
+      currentIdx = i;
+      break;
+    }
+  }
+  const current = LEVEL_THRESHOLDS[currentIdx];
+  const nextIdx = Math.min(currentIdx + 1, LEVEL_THRESHOLDS.length - 1);
+  const next = LEVEL_THRESHOLDS[nextIdx];
+  const xpInLevel = xp - current.xp;
+  const xpForNextLevel = next.xp - current.xp;
+  const progress = xpForNextLevel > 0 ? xpInLevel / xpForNextLevel : 1;
+  return { level: current.level, title: current.title, xp, xpInLevel, xpForNextLevel, progress, isMax: currentIdx === nextIdx };
+}
 
 // Streak data
 interface StreakData {
@@ -54,6 +104,7 @@ interface LearningState {
   // Stats
   totalStepsCompleted: number;
   totalAttempts: number;
+  xp: number;
 
   // Actions
   initializePath: (pathId: string, steps: { stepNumber: number; problemId: string }[]) => PathProgressData;
@@ -69,6 +120,9 @@ interface LearningState {
   isStepCompleted: (pathId: string, stepNumber: number) => boolean;
   isPathComplete: (pathId: string, totalSteps: number) => boolean;
   getCompletedStepsCount: (pathId: string) => number;
+
+  // XP
+  addXP: (amount: number) => void;
 
   // Achievements
   checkAndUnlockAchievements: (context: AchievementContext) => string[];
@@ -103,6 +157,7 @@ export const useLearningStore = create<LearningState>()(
       streak: { lastAccessDate: '', currentStreak: 0, bestStreak: 0 },
       totalStepsCompleted: 0,
       totalAttempts: 0,
+      xp: 0,
 
       // Initialize a path
       initializePath: (pathId, steps) => {
@@ -129,7 +184,8 @@ export const useLearningStore = create<LearningState>()(
             unlocked: index === 0,
             completed: false,
             attempts: 0,
-            bestAccuracy: 0
+            bestAccuracy: 0,
+            hintsUsed: 0
           }))
         };
 
@@ -165,6 +221,7 @@ export const useLearningStore = create<LearningState>()(
         step.completedAt = new Date().toISOString();
         step.attempts += 1;
         step.bestAccuracy = Math.max(step.bestAccuracy, accuracy);
+        step.hintsUsed = hintsUsed;
 
         // Unlock next step
         if (stepIndex + 1 < updatedSteps.length) {
@@ -180,12 +237,24 @@ export const useLearningStore = create<LearningState>()(
           steps: updatedSteps
         };
 
+        // Calculate XP earned
+        let xpEarned = 0;
+        if (wasFirstCompletion) {
+          xpEarned += XP_REWARDS.STEP_COMPLETE;
+          if (step.attempts <= 1) xpEarned += XP_REWARDS.FIRST_TRY_BONUS;
+          if (accuracy >= 1) xpEarned += XP_REWARDS.PERFECT_ACCURACY;
+          // Path completion bonus
+          const allCompleted = updatedSteps.every(s => s.completed);
+          if (allCompleted) xpEarned += XP_REWARDS.PATH_COMPLETE;
+        }
+
         set(state => ({
           pathProgress: { ...state.pathProgress, [pathId]: updated },
           totalStepsCompleted: wasFirstCompletion
             ? state.totalStepsCompleted + 1
             : state.totalStepsCompleted,
-          totalAttempts: state.totalAttempts + 1
+          totalAttempts: state.totalAttempts + 1,
+          xp: state.xp + xpEarned
         }));
 
         // Check achievements
@@ -267,6 +336,11 @@ export const useLearningStore = create<LearningState>()(
         return progress?.stepsCompleted ?? 0;
       },
 
+      // XP
+      addXP: (amount) => {
+        set(state => ({ xp: state.xp + amount }));
+      },
+
       // Achievement system
       checkAndUnlockAchievements: (context) => {
         const state = get();
@@ -283,18 +357,17 @@ export const useLearningStore = create<LearningState>()(
           unlock('first_step');
         }
 
-        // Perfect accuracy
-        if (context.accuracy === 1) {
+        // Skill achievements: count across ALL completed steps (already includes current)
+        const allSteps = Object.values(state.pathProgress).flatMap(p => p.steps);
+        const completedSteps = allSteps.filter(s => s.completed);
+
+        if (completedSteps.filter(s => s.bestAccuracy === 1).length >= 5) {
           unlock('perfect_accuracy');
         }
-
-        // Speed learner (completed in under 3 attempts)
-        if (context.attempts && context.attempts <= 3) {
+        if (completedSteps.filter(s => s.attempts <= 3).length >= 5) {
           unlock('speed_learner');
         }
-
-        // Hint free (0 hints used)
-        if (context.hintsUsed === 0) {
+        if (completedSteps.filter(s => s.hintsUsed === 0).length >= 5) {
           unlock('hint_free');
         }
 
@@ -307,7 +380,7 @@ export const useLearningStore = create<LearningState>()(
               unlock('path_complete');
 
               if (context.pathId === 'foundations') unlock('all_foundations');
-              if (context.pathId === 'pitfall-prevention') unlock('failure_master');
+              if (context.pathId === 'advanced-challenges') unlock('failure_master');
               if (context.pathId === 'convolutional-vision') unlock('cnn_expert');
             }
           }
@@ -363,7 +436,11 @@ export const useLearningStore = create<LearningState>()(
           };
         }
 
-        set({ streak: newStreak });
+        set(state => ({
+          streak: newStreak,
+          // Award daily streak XP (only if streak continued or started fresh)
+          xp: current.lastAccessDate !== today ? state.xp + XP_REWARDS.STREAK_DAILY : state.xp
+        }));
 
         // Check streak achievements
         get().checkAndUnlockAchievements({});
@@ -378,7 +455,8 @@ export const useLearningStore = create<LearningState>()(
         unlockedAchievements: state.unlockedAchievements,
         streak: state.streak,
         totalStepsCompleted: state.totalStepsCompleted,
-        totalAttempts: state.totalAttempts
+        totalAttempts: state.totalAttempts,
+        xp: state.xp
       })
     }
   )
@@ -391,3 +469,7 @@ export const useTotalProgress = () => useLearningStore(state => ({
   attempts: state.totalAttempts
 }));
 export const useStreak = () => useLearningStore(state => state.streak);
+export const useLevel = () => {
+  const xp = useLearningStore(state => state.xp);
+  return getLevelInfo(xp);
+};

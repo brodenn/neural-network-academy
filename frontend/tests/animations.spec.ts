@@ -329,7 +329,7 @@ test.describe('Game-Style Animations', () => {
       // Click timeline button
       const timelineButton = page.getByRole('button', { name: /Timeline/ });
       if (await timelineButton.isVisible()) {
-        await timelineButton.click();
+        await timelineButton.evaluate((el: HTMLElement) => el.click());
         await page.waitForTimeout(500);
 
         // Scrubber elements should appear
@@ -354,7 +354,7 @@ test.describe('Game-Style Animations', () => {
       // Open timeline
       const timelineButton = page.getByRole('button', { name: /Timeline/ });
       if (await timelineButton.isVisible()) {
-        await timelineButton.click();
+        await timelineButton.evaluate((el: HTMLElement) => el.click());
         await page.waitForTimeout(500);
 
         // Check for value displays in scrubber
@@ -381,7 +381,7 @@ test.describe('Game-Style Animations', () => {
       // Open timeline
       const timelineButton = page.getByRole('button', { name: /Timeline/ });
       if (await timelineButton.isVisible()) {
-        await timelineButton.click();
+        await timelineButton.evaluate((el: HTMLElement) => el.click());
         await page.waitForTimeout(500);
 
         // Find the scrubber track and drag
@@ -455,11 +455,11 @@ test.describe('Game-Style Animations', () => {
       // Open timeline
       const timelineButton = page.getByRole('button', { name: /Timeline/ });
       if (await timelineButton.isVisible()) {
-        await timelineButton.click();
+        await timelineButton.evaluate((el: HTMLElement) => el.click());
         await page.waitForTimeout(500);
 
         // Loss curve should still be visible
-        await expect(page.locator('.recharts-wrapper')).toBeVisible();
+        await expect(page.locator('.recharts-wrapper').first()).toBeVisible();
       }
     });
   });

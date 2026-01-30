@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useLearningStore, type Achievement } from '../stores/learningStore';
+import { useLearningStore, useLevel, type Achievement } from '../stores/learningStore';
 
 export const AchievementsPanel = () => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -8,6 +8,8 @@ export const AchievementsPanel = () => {
   const unlockedIds = useLearningStore(state => state.unlockedAchievements);
   const totalSteps = useLearningStore(state => state.totalStepsCompleted);
   const streak = useLearningStore(state => state.streak);
+
+  const levelInfo = useLevel();
 
   const unlockedCount = unlockedIds.length;
   const totalCount = achievements.length;
@@ -74,11 +76,31 @@ export const AchievementsPanel = () => {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Quick stats */}
-          <div className="hidden sm:flex items-center gap-4 text-sm text-gray-400">
-            <span>{totalSteps} steps</span>
+          {/* Level & XP */}
+          <div className="hidden sm:flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white shadow">
+                {levelInfo.level}
+              </div>
+              <div className="text-sm">
+                <span className="text-indigo-300 font-medium">{levelInfo.title}</span>
+                <div className="flex items-center gap-1">
+                  <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${levelInfo.progress * 100}%` }}
+                      transition={{ duration: 0.5 }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-gray-500">{levelInfo.xp} XP</span>
+                </div>
+              </div>
+            </div>
+            <span className="text-gray-600">|</span>
+            <span className="text-sm text-gray-400">{totalSteps} steps</span>
             {streak.currentStreak > 0 && (
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1 text-sm text-gray-400">
                 <span>🔥</span>
                 {streak.currentStreak}d
               </span>

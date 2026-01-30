@@ -123,7 +123,8 @@ export function usePathProgress(): UsePathProgressReturn {
             completed: existingStep?.completed ?? false,
             completedAt: existingStep?.completedAt,
             attempts: existingStep?.attempts ?? 0,
-            bestAccuracy: existingStep?.bestAccuracy ?? 0
+            bestAccuracy: existingStep?.bestAccuracy ?? 0,
+            hintsUsed: existingStep?.hintsUsed ?? 0
           };
         });
 
@@ -159,7 +160,8 @@ export function usePathProgress(): UsePathProgressReturn {
         unlocked: index === 0, // First step unlocked by default
         completed: false,
         attempts: 0,
-        bestAccuracy: 0
+        bestAccuracy: 0,
+        hintsUsed: 0
       }))
     };
 

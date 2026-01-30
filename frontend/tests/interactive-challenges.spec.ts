@@ -30,17 +30,17 @@ test.describe('Interactive Challenges Test Suite', () => {
     }
   });
 
-  test.describe('Interactive Fundamentals Path', () => {
+  test.describe('Foundations Path', () => {
     test('interactive fundamentals path is visible', async ({ page }) => {
       // Navigate to Learning Paths
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Check for the new interactive path
-      const interactivePath = page.locator('text=Interactive Fundamentals');
+      // Check for the new interactive path (use heading to be specific)
+      const interactivePath = page.getByRole('heading', { name: 'Foundations' });
       await expect(interactivePath).toBeVisible({ timeout: 5000 });
 
-      console.log('✓ Interactive Fundamentals path is visible');
+      console.log('✓ Foundations path is visible');
     });
 
     test('can start interactive fundamentals path', async ({ page }) => {
@@ -48,8 +48,8 @@ test.describe('Interactive Challenges Test Suite', () => {
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Find and click the Interactive Fundamentals path
-      const pathCard = page.locator('text=Interactive Fundamentals').first();
+      // Find and click the Foundations path
+      const pathCard = page.locator('text=Foundations').first();
       await pathCard.click();
       await page.waitForTimeout(500);
 
@@ -64,7 +64,7 @@ test.describe('Interactive Challenges Test Suite', () => {
       const stepTitle = page.locator('text=/Prediction|XOR|Hidden/i').first();
       await expect(stepTitle).toBeVisible({ timeout: 5000 });
 
-      console.log('✓ Interactive Fundamentals path started');
+      console.log('✓ Foundations path started');
     });
 
     test('prediction quiz step shows quiz interface', async ({ page }) => {
@@ -72,8 +72,8 @@ test.describe('Interactive Challenges Test Suite', () => {
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Find and click the Interactive Fundamentals path
-      const pathCard = page.locator('text=Interactive Fundamentals').first();
+      // Find and click the Foundations path
+      const pathCard = page.locator('text=Foundations').first();
       await pathCard.click();
       await page.waitForTimeout(500);
 
@@ -92,8 +92,8 @@ test.describe('Interactive Challenges Test Suite', () => {
       const hasQuiz = await quizHeader.isVisible({ timeout: 5000 }).catch(() => false);
 
       if (hasQuiz) {
-        // Check for quiz options
-        const options = page.locator('text=/It will converge|Accuracy will get stuck|Learn slowly|explode/i');
+        // Check for quiz options (AND gate quiz uses different options)
+        const options = page.locator('button:has-text("linearly separable"), button:has-text("hidden layer"), button:has-text("learning rate")');
         const optionCount = await options.count();
         expect(optionCount).toBeGreaterThan(0);
         console.log('✓ Prediction quiz options visible');
@@ -111,8 +111,8 @@ test.describe('Interactive Challenges Test Suite', () => {
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Start Interactive Fundamentals
-      const pathCard = page.locator('text=Interactive Fundamentals').first();
+      // Start Foundations
+      const pathCard = page.locator('text=Foundations').first();
       await pathCard.click();
       await page.waitForTimeout(500);
 
@@ -156,8 +156,8 @@ test.describe('Interactive Challenges Test Suite', () => {
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Start Interactive Fundamentals
-      const pathCard = page.locator('text=Interactive Fundamentals').first();
+      // Start Foundations
+      const pathCard = page.locator('text=Foundations').first();
       await pathCard.click();
       await page.waitForTimeout(500);
 
@@ -197,14 +197,14 @@ test.describe('Interactive Challenges Test Suite', () => {
   test.describe('Debug Challenge Component', () => {
     test('debug challenge shows symptoms and options', async ({ page }) => {
       // For this test, we'll directly check the component renders
-      // The debug challenge is on step 4 of interactive-fundamentals
+      // The debug challenge is on step 8 of foundations
 
       // Navigate to Learning Paths
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Start Interactive Fundamentals
-      const pathCard = page.locator('text=Interactive Fundamentals').first();
+      // Start Foundations
+      const pathCard = page.locator('text=Foundations').first();
       await pathCard.click();
       await page.waitForTimeout(500);
 
@@ -217,7 +217,7 @@ test.describe('Interactive Challenges Test Suite', () => {
       await waitForConnection(page);
 
       // Check that the path is active
-      await expect(page.locator('text=/Interactive Fundamentals|Step/i').first()).toBeVisible();
+      await expect(page.locator('text=/Foundations|Step/i').first()).toBeVisible();
 
       console.log('✓ Interactive path loaded successfully');
     });
@@ -237,8 +237,8 @@ test.describe('Interactive Challenges Test Suite', () => {
       await page.click('text=Learning Paths');
       await page.waitForTimeout(1000);
 
-      // Verify Interactive Fundamentals exists
-      const interactivePath = page.locator('text=Interactive Fundamentals');
+      // Verify Foundations exists (use heading to avoid matching "Complete first: Foundations")
+      const interactivePath = page.getByRole('heading', { name: 'Foundations' });
       await expect(interactivePath).toBeVisible({ timeout: 5000 });
 
       console.log('✓ All components load without errors');

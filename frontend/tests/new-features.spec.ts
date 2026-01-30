@@ -33,23 +33,16 @@ test.describe('New Features Test Suite', () => {
 
   test.describe('Training Narrator', () => {
     test('shows training insights during training', async ({ page }) => {
-      // Navigate to Learning Paths and start a path
-      await page.click('text=Learning Paths');
+      // Go to All Problems view for standard training UI
+      await page.click('text=All Problems');
       await page.waitForTimeout(1000);
 
-      // Click Start Path on Foundations
-      const startButton = page.locator('button:has-text("Start Path")').first();
-      await startButton.click({ force: true });
-      await page.waitForTimeout(2000);
-
-      // Wait for connection
       await waitForConnection(page);
 
-      // Start training
-      const trainButton = page.locator('button:has-text("Train")').first();
-      await trainButton.click();
+      // Start training using standard training panel
+      await startStaticTraining(page, 100, 0.5);
 
-      // Wait for training to start and narrator to appear
+      // Wait for training to start
       await page.waitForTimeout(2000);
 
       // Check for training-related UI elements (narrator insights)
