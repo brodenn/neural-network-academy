@@ -5,6 +5,8 @@ Defines structured curricula guiding learners through the 28 problems
 with clear progression, prerequisites, and educational scaffolding.
 """
 
+# Wow, riktigt coolt!
+
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Literal
 

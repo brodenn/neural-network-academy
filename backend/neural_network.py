@@ -46,6 +46,7 @@ class NeuralNetwork:
             hidden_activation: Activation for hidden layers: 'relu', 'sigmoid', 'tanh'
             use_biases: Whether to use bias terms (default: True)
         """
+        # Klassattributen kan/bör sättas till protected (med ett underscore).
         self.layer_sizes = layer_sizes
         self.learning_rate = learning_rate
         self.num_layers = len(layer_sizes)
