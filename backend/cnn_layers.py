@@ -5,6 +5,8 @@ Pure NumPy implementation of convolutional neural network layers.
 Uses im2col for efficient convolution operations.
 """
 
+# Snygg användning av interfaces och underklasser här!
+
 import numpy as np
 from abc import ABC, abstractmethod
 

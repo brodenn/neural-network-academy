@@ -15,17 +15,34 @@ An interactive educational platform for learning neural networks from first prin
 
 ## Quick Start
 
-```bash
+# Kanske bör det läggas till en kommentar om att man behöver en venv om man kör med detta, åtminstone i Ubuntu?
+
+Run the backend and frontend in separate terminals:
+
 # Terminal 1: Backend
+```bash
 cd backend
 pip install -r requirements.txt
 python app.py
+```
 
 # Terminal 2: Frontend
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
+
+Jag för följande fel när jag kör frontend:
+
+```
+error when starting dev server:
+TypeError: crypto.hash is not a function
+    at getHash (file:///home/erik/nicklas/neural-network-academy/frontend/node_modules/vite/dist/node/chunks/config.js:2444:19)
+```
+
+Kan det vara fel funktionsnamn eller något?
 
 Open http://localhost:5173
 

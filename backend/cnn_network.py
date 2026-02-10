@@ -38,6 +38,7 @@ class CNNNetwork:
         Args:
             input_shape: (height, width, channels) of input images
         """
+        # Dessa attribut kanske bör sättas till protected (med ett underscore)?
         self.input_shape = input_shape
         self.layers: list[Layer] = []
         self.layer_names: list[str] = []
@@ -46,6 +47,7 @@ class CNNNetwork:
         self._current_shape = input_shape
 
         # Training history
+        # Dessa attribut kanske bör sättas till protected (med ett underscore)?
         self.loss_history: list[float] = []
         self.accuracy_history: list[float] = []
 
