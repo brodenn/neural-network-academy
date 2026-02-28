@@ -38,16 +38,40 @@ class CNNNetwork:
         Args:
             input_shape: (height, width, channels) of input images
         """
-        self.input_shape = input_shape
-        self.layers: list[Layer] = []
-        self.layer_names: list[str] = []
+        self._input_shape = input_shape
+        self._layers: list[Layer] = []
+        self._layer_names: list[str] = []
 
         # Track current shape as we build the network
         self._current_shape = input_shape
 
         # Training history
-        self.loss_history: list[float] = []
-        self.accuracy_history: list[float] = []
+        self._loss_history: list[float] = []
+        self._accuracy_history: list[float] = []
+
+    # -------------------------------------------------------------------------
+    # Properties (public read access to protected attributes)
+    # -------------------------------------------------------------------------
+
+    @property
+    def input_shape(self) -> tuple[int, int, int]:
+        return self._input_shape
+
+    @property
+    def layers(self) -> list[Layer]:
+        return self._layers
+
+    @property
+    def layer_names(self) -> list[str]:
+        return self._layer_names
+
+    @property
+    def loss_history(self) -> list[float]:
+        return self._loss_history
+
+    @property
+    def accuracy_history(self) -> list[float]:
+        return self._accuracy_history
 
     def add_conv2d(self, filters: int, kernel_size: int = 3,
                    activation: str = 'relu', padding: str = 'valid') -> None:
@@ -68,8 +92,8 @@ class CNNNetwork:
             in_channels=c,
             padding=padding
         )
-        self.layers.append(conv)
-        self.layer_names.append(f'conv2d_{filters}')
+        self._layers.append(conv)
+        self._layer_names.append(f'conv2d_{filters}')
 
         # Update current shape
         if padding == 'valid':
@@ -79,8 +103,8 @@ class CNNNetwork:
 
         # Add activation
         if activation == 'relu':
-            self.layers.append(ReLU())
-            self.layer_names.append('relu')
+            self._layers.append(ReLU())
+            self._layer_names.append('relu')
 
     def add_maxpool2d(self, pool_size: int = 2) -> None:
         """
@@ -92,8 +116,8 @@ class CNNNetwork:
         h, w, c = self._current_shape
 
         pool = MaxPool2D(pool_size=pool_size)
-        self.layers.append(pool)
-        self.layer_names.append(f'maxpool_{pool_size}')
+        self._layers.append(pool)
+        self._layer_names.append(f'maxpool_{pool_size}')
 
         # Update current shape
         self._current_shape = (h // pool_size, w // pool_size, c)
@@ -102,8 +126,8 @@ class CNNNetwork:
         """Add Flatten layer to convert 4D to 2D."""
         h, w, c = self._current_shape
 
-        self.layers.append(Flatten())
-        self.layer_names.append('flatten')
+        self._layers.append(Flatten())
+        self._layer_names.append('flatten')
 
         # Update current shape (now 1D)
         self._current_shape = (h * w * c,)
@@ -122,19 +146,19 @@ class CNNNetwork:
             in_features = self._current_shape[0]
 
         dense = Dense(in_features=in_features, out_features=units)
-        self.layers.append(dense)
-        self.layer_names.append(f'dense_{units}')
+        self._layers.append(dense)
+        self._layer_names.append(f'dense_{units}')
 
         # Update current shape
         self._current_shape = (units,)
 
         # Add activation
         if activation == 'relu':
-            self.layers.append(ReLU())
-            self.layer_names.append('relu')
+            self._layers.append(ReLU())
+            self._layer_names.append('relu')
         elif activation == 'softmax':
-            self.layers.append(Softmax())
-            self.layer_names.append('softmax')
+            self._layers.append(Softmax())
+            self._layer_names.append('softmax')
 
     def forward(self, X: np.ndarray) -> tuple[np.ndarray, list[np.ndarray]]:
         """
@@ -150,7 +174,7 @@ class CNNNetwork:
         activations = [X]
         current = X
 
-        for layer in self.layers:
+        for layer in self._layers:
             current = layer.forward(current)
             activations.append(current)
 
@@ -170,7 +194,7 @@ class CNNNetwork:
         grad = activations[-1] - y_true
 
         # Backpropagate through layers in reverse
-        for layer in reversed(self.layers):
+        for layer in reversed(self._layers):
             grad = layer.backward(grad, learning_rate)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -238,8 +262,8 @@ class CNNNetwork:
         Returns:
             Dictionary with training results
         """
-        self.loss_history = []
-        self.accuracy_history = []
+        self._loss_history = []
+        self._accuracy_history = []
         stopped = False
 
         if verbose:
@@ -263,8 +287,8 @@ class CNNNetwork:
             loss = self.cross_entropy_loss(output, y)
             accuracy = self.calculate_accuracy(X, y)
 
-            self.loss_history.append(loss)
-            self.accuracy_history.append(accuracy)
+            self._loss_history.append(loss)
+            self._accuracy_history.append(accuracy)
 
             # Backward pass
             self.backward(y, activations, learning_rate)
@@ -277,8 +301,8 @@ class CNNNetwork:
             if verbose and (epoch % 50 == 0 or epoch == epochs - 1):
                 print(f"Epoch {epoch:4d}/{epochs} | Loss: {loss:.4f} | Accuracy: {accuracy*100:.1f}%")
 
-        final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
-        actual_epochs = len(self.loss_history)
+        final_accuracy = self._accuracy_history[-1] if self._accuracy_history else 0
+        actual_epochs = len(self._loss_history)
 
         if verbose and not stopped:
             print("-" * 60)
@@ -287,10 +311,10 @@ class CNNNetwork:
 
         return {
             "epochs": actual_epochs,
-            "final_loss": self.loss_history[-1] if self.loss_history else 0,
+            "final_loss": self._loss_history[-1] if self._loss_history else 0,
             "final_accuracy": final_accuracy,
-            "loss_history": self.loss_history,
-            "accuracy_history": self.accuracy_history,
+            "loss_history": self._loss_history,
+            "accuracy_history": self._accuracy_history,
             "stopped": stopped
         }
 
@@ -321,8 +345,8 @@ class CNNNetwork:
         Returns:
             Dictionary with training results
         """
-        self.loss_history = []
-        self.accuracy_history = []
+        self._loss_history = []
+        self._accuracy_history = []
         stopped = False
 
         # Helper to get current target (supports both float and callable)
@@ -367,8 +391,8 @@ class CNNNetwork:
             loss = self.cross_entropy_loss(output, y)
             accuracy = self.calculate_accuracy(X, y)
 
-            self.loss_history.append(loss)
-            self.accuracy_history.append(accuracy)
+            self._loss_history.append(loss)
+            self._accuracy_history.append(accuracy)
 
             # Backward pass
             self.backward(y, activations, lr)
@@ -405,7 +429,7 @@ class CNNNetwork:
 
             epoch += 1
 
-        final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
+        final_accuracy = self._accuracy_history[-1] if self._accuracy_history else 0
         final_target = get_target()
 
         if verbose and not stopped:
@@ -417,10 +441,10 @@ class CNNNetwork:
 
         return {
             "epochs": epoch,
-            "final_loss": self.loss_history[-1] if self.loss_history else 0,
+            "final_loss": self._loss_history[-1] if self._loss_history else 0,
             "final_accuracy": final_accuracy,
-            "loss_history": self.loss_history,
-            "accuracy_history": self.accuracy_history,
+            "loss_history": self._loss_history,
+            "accuracy_history": self._accuracy_history,
             "target_reached": final_accuracy >= final_target,
             "stopped": stopped
         }
@@ -428,21 +452,21 @@ class CNNNetwork:
     def get_architecture(self) -> dict:
         """Get network architecture info."""
         return {
-            "input_shape": self.input_shape,
-            "layers": self.layer_names,
-            "layer_count": len(self.layers),
+            "input_shape": self._input_shape,
+            "layers": self._layer_names,
+            "layer_count": len(self._layers),
             "type": "cnn"
         }
 
     def get_weights(self) -> list[dict]:
         """Get all layer weights for visualization."""
         weights = []
-        for i, layer in enumerate(self.layers):
+        for i, layer in enumerate(self._layers):
             layer_weights = layer.get_weights()
             if layer_weights:
                 weights.append({
                     "layer": i,
-                    "name": self.layer_names[i],
+                    "name": self._layer_names[i],
                     **layer_weights
                 })
         return weights
@@ -473,7 +497,7 @@ class CNNNetwork:
 
         # Find last conv layer
         last_conv_idx = None
-        for i, name in enumerate(self.layer_names):
+        for i, name in enumerate(self._layer_names):
             if 'conv' in name:
                 last_conv_idx = i
 
@@ -497,7 +521,7 @@ class CNNNetwork:
 
         # Get the dense layer weights from flatten to output
         # Find the dense layer that connects to output
-        dense_layers = [l for l in self.layers if hasattr(l, 'weights')]
+        dense_layers = [l for l in self._layers if hasattr(l, 'weights')]
         if len(dense_layers) < 1:
             return None
 
@@ -562,7 +586,7 @@ class CNNNetwork:
         _, activations = self.forward(X)
 
         feature_maps = {}
-        for i, (name, act) in enumerate(zip(self.layer_names, activations[1:])):
+        for i, (name, act) in enumerate(zip(self._layer_names, activations[1:])):
             if 'conv' in name or 'pool' in name:
                 # Convert to list for JSON serialization
                 feature_maps[name] = act[0].tolist()  # Remove batch dimension
@@ -573,15 +597,15 @@ class CNNNetwork:
         """Reset network by reinitializing all layers."""
         # Store layer config
         layer_configs = []
-        for name in self.layer_names:
+        for name in self._layer_names:
             layer_configs.append(name)
 
         # Clear and rebuild
-        self.layers = []
-        self.layer_names = []
-        self._current_shape = self.input_shape
-        self.loss_history = []
-        self.accuracy_history = []
+        self._layers = []
+        self._layer_names = []
+        self._current_shape = self._input_shape
+        self._loss_history = []
+        self._accuracy_history = []
 
         # Rebuild layers (simplified - would need full config in production)
         for name in layer_configs:
@@ -597,11 +621,11 @@ class CNNNetwork:
                 units = int(name.split('_')[1])
                 self.add_dense(units=units, activation=None)
             elif name == 'relu':
-                self.layers.append(ReLU())
-                self.layer_names.append('relu')
+                self._layers.append(ReLU())
+                self._layer_names.append('relu')
             elif name == 'softmax':
-                self.layers.append(Softmax())
-                self.layer_names.append('softmax')
+                self._layers.append(Softmax())
+                self._layer_names.append('softmax')
 
 
 # -----------------------------------------------------------------------------

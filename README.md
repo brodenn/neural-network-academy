@@ -8,8 +8,8 @@ An interactive educational platform for learning neural networks from first prin
 
 ## Prerequisites
 
-- **Python 3.8+** with pip
-- **Node.js 18+** with npm
+- **Python 3.11+** with pip
+- **Node.js 22+** with npm (Vite 7 requires `crypto.hash`, added in Node 21.7)
 
 ---
 
@@ -18,6 +18,8 @@ An interactive educational platform for learning neural networks from first prin
 ```bash
 # Terminal 1: Backend
 cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 python app.py
 

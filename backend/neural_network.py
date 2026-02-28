@@ -46,43 +46,99 @@ class NeuralNetwork:
             hidden_activation: Activation for hidden layers: 'relu', 'sigmoid', 'tanh'
             use_biases: Whether to use bias terms (default: True)
         """
-        self.layer_sizes = layer_sizes
-        self.learning_rate = learning_rate
-        self.num_layers = len(layer_sizes)
-        self.output_activation = output_activation
-        self.weight_init = weight_init
-        self.hidden_activation = hidden_activation
-        self.use_biases = use_biases
+        self._layer_sizes = layer_sizes
+        self._learning_rate = learning_rate
+        self._num_layers = len(layer_sizes)
+        self._output_activation = output_activation
+        self._weight_init = weight_init
+        self._hidden_activation = hidden_activation
+        self._use_biases = use_biases
 
         # Initialize weights and biases
-        self.weights: list[np.ndarray] = []
-        self.biases: list[np.ndarray] = []
+        self._weights: list[np.ndarray] = []
+        self._biases: list[np.ndarray] = []
         self._initialize_weights()
 
         # Training history
-        self.loss_history: list[float] = []
-        self.accuracy_history: list[float] = []
+        self._loss_history: list[float] = []
+        self._accuracy_history: list[float] = []
 
         # Gradient history for visualization
-        self.last_gradients: list[list[float]] = []
+        self._last_gradients: list[list[float]] = []
+
+    # -------------------------------------------------------------------------
+    # Properties (public read access to protected attributes)
+    # -------------------------------------------------------------------------
+
+    @property
+    def layer_sizes(self) -> list[int]:
+        return self._layer_sizes
+
+    @property
+    def learning_rate(self) -> float:
+        return self._learning_rate
+
+    @learning_rate.setter
+    def learning_rate(self, value: float) -> None:
+        self._learning_rate = value
+
+    @property
+    def num_layers(self) -> int:
+        return self._num_layers
+
+    @property
+    def output_activation(self) -> str:
+        return self._output_activation
+
+    @property
+    def weight_init(self) -> str:
+        return self._weight_init
+
+    @property
+    def hidden_activation(self) -> str:
+        return self._hidden_activation
+
+    @property
+    def use_biases(self) -> bool:
+        return self._use_biases
+
+    @property
+    def weights(self) -> list[np.ndarray]:
+        return self._weights
+
+    @property
+    def biases(self) -> list[np.ndarray]:
+        return self._biases
+
+    @property
+    def loss_history(self) -> list[float]:
+        return self._loss_history
+
+    @property
+    def accuracy_history(self) -> list[float]:
+        return self._accuracy_history
+
+    @property
+    def last_gradients(self) -> list[list[float]]:
+        return self._last_gradients
 
     def _initialize_weights(self) -> None:
         """Initialize weights based on selected method."""
-        self.weights = []
-        self.biases = []
+        self._weights = []
+        self._biases = []
 
-        for i in range(self.num_layers - 1):
-            in_size = self.layer_sizes[i]
-            out_size = self.layer_sizes[i + 1]
+        for i in range(self._num_layers - 1):
+            in_size = self._layer_sizes[i]
+            out_size = self._layer_sizes[i + 1]
 
             # Weight initialization
-            if self.weight_init == 'zeros':
+            if self._weight_init == 'zeros':
                 # Zeros - network won't learn (for demonstration)
                 w = np.zeros((in_size, out_size))
-            elif self.weight_init == 'random':
+            elif self._weight_init == 'random':
                 # Random uniform [-1, 1] - can be unstable
                 w = np.random.uniform(-1, 1, (in_size, out_size))
-            elif self.weight_init == 'he':
+            elif self._weight_init == 'he':
                 # He initialization - good for ReLU
                 std = np.sqrt(2.0 / in_size)
                 w = np.random.randn(in_size, out_size) * std
@@ -94,8 +150,8 @@ class NeuralNetwork:
             # Biases (always create array, but only update during training if use_biases=True)
             b = np.zeros((1, out_size))
 
-            self.weights.append(w)
-            self.biases.append(b)
+            self._weights.append(w)
+            self._biases.append(b)
 
     # -------------------------------------------------------------------------
     # Activation Functions
@@ -142,18 +198,18 @@ class NeuralNetwork:
 
     def _get_hidden_activation(self, z: np.ndarray) -> np.ndarray:
         """Apply the configured hidden layer activation function."""
-        if self.hidden_activation == 'sigmoid':
+        if self._hidden_activation == 'sigmoid':
             return self.sigmoid(z)
-        elif self.hidden_activation == 'tanh':
+        elif self._hidden_activation == 'tanh':
             return self.tanh(z)
         else:  # relu (default)
             return self.relu(z)
 
     def _get_hidden_activation_derivative(self, activated: np.ndarray) -> np.ndarray:
         """Get derivative of hidden activation (activated = already passed through activation)."""
-        if self.hidden_activation == 'sigmoid':
+        if self._hidden_activation == 'sigmoid':
             return self.sigmoid_derivative(activated)
-        elif self.hidden_activation == 'tanh':
+        elif self._hidden_activation == 'tanh':
             return self.tanh_derivative(activated)
         else:  # relu
             return self.relu_derivative(activated)
@@ -178,18 +234,18 @@ class NeuralNetwork:
         z_values = []
 
         current = X
-        for i in range(self.num_layers - 1):
+        for i in range(self._num_layers - 1):
             # Linear transformation: z = X @ W + b
-            z = np.dot(current, self.weights[i]) + self.biases[i]
+            z = np.dot(current, self._weights[i]) + self._biases[i]
             z_values.append(z)
 
             # Apply activation function
-            if i < self.num_layers - 2:
+            if i < self._num_layers - 2:
                 # Hidden layers: configurable activation
                 current = self._get_hidden_activation(z)
             else:
                 # Output layer: configurable activation
-                if self.output_activation == 'softmax':
+                if self._output_activation == 'softmax':
                     current = self.softmax(z)
                 else:
                     current = self.sigmoid(z)
@@ -260,7 +316,7 @@ class NeuralNetwork:
 
         # Output layer error (gradient depends on activation)
         output = activations[-1]
-        if self.output_activation == 'softmax':
+        if self._output_activation == 'softmax':
             # Softmax + cross-entropy: gradient is simply (output - y)
             delta = output - y
         else:
@@ -272,24 +328,24 @@ class NeuralNetwork:
         deltas = [delta]
 
         # Backpropagate through hidden layers
-        for i in range(self.num_layers - 2, 0, -1):
-            delta = np.dot(deltas[0], self.weights[i].T) * self._get_hidden_activation_derivative(activations[i])
+        for i in range(self._num_layers - 2, 0, -1):
+            delta = np.dot(deltas[0], self._weights[i].T) * self._get_hidden_activation_derivative(activations[i])
             deltas.insert(0, delta)
 
         # Store gradient magnitudes for visualization (per-neuron average)
-        self.last_gradients = []
+        self._last_gradients = []
         for delta in deltas:
             grad_magnitude = np.mean(np.abs(delta), axis=0)
-            self.last_gradients.append(grad_magnitude.tolist())
+            self._last_gradients.append(grad_magnitude.tolist())
 
         # Update weights and biases
-        for i in range(self.num_layers - 1):
+        for i in range(self._num_layers - 1):
             gradient_w = np.dot(activations[i].T, deltas[i]) / n_samples
             gradient_b = np.mean(deltas[i], axis=0, keepdims=True)
 
-            self.weights[i] -= self.learning_rate * gradient_w
-            if self.use_biases:
-                self.biases[i] -= self.learning_rate * gradient_b
+            self._weights[i] -= self._learning_rate * gradient_w
+            if self._use_biases:
+                self._biases[i] -= self._learning_rate * gradient_b
 
     # -------------------------------------------------------------------------
     # Loss Functions
@@ -310,7 +366,7 @@ class NeuralNetwork:
     def calculate_accuracy(self, X: np.ndarray, y: np.ndarray, tolerance: float = 0.1) -> float:
         """Calculate prediction accuracy (binary, multi-class, or regression)."""
         predictions = self.predict(X)
-        if self.output_activation == 'softmax':
+        if self._output_activation == 'softmax':
             # Multi-class: compare argmax
             pred_classes = np.argmax(predictions, axis=1)
             true_classes = np.argmax(y, axis=1)
@@ -356,15 +412,15 @@ class NeuralNetwork:
         Returns:
             Dictionary with training results
         """
-        self.learning_rate = learning_rate
-        self.loss_history = []
-        self.accuracy_history = []
+        self._learning_rate = learning_rate
+        self._loss_history = []
+        self._accuracy_history = []
         stopped = False
 
         if verbose:
             print("-" * 80)
             print(f"Starting static training: {epochs} epochs, LR={learning_rate}")
-            print(f"Network architecture: {self.layer_sizes}")
+            print(f"Network architecture: {self._layer_sizes}")
             print("-" * 80)
 
         for epoch in range(epochs):
@@ -379,14 +435,14 @@ class NeuralNetwork:
             output, activations, z_values = self.forward(X)
 
             # Calculate loss and accuracy (use appropriate loss function)
-            if self.output_activation == 'softmax':
+            if self._output_activation == 'softmax':
                 loss = self.cross_entropy_loss(output, y)
             else:
                 loss = self.mse_loss(output, y)
             accuracy = self.calculate_accuracy(X, y)
 
-            self.loss_history.append(loss)
-            self.accuracy_history.append(accuracy)
+            self._loss_history.append(loss)
+            self._accuracy_history.append(accuracy)
 
             # Backward pass
             self.backward(X, y, activations, z_values)
@@ -399,8 +455,8 @@ class NeuralNetwork:
             if verbose and (epoch % 100 == 0 or epoch == epochs - 1):
                 print(f"Epoch {epoch:5d}/{epochs} | Loss: {loss:.6f} | Accuracy: {accuracy*100:.1f}%")
 
-        final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
-        actual_epochs = len(self.loss_history)
+        final_accuracy = self._accuracy_history[-1] if self._accuracy_history else 0
+        actual_epochs = len(self._loss_history)
 
         if verbose and not stopped:
             print("-" * 80)
@@ -409,10 +465,10 @@ class NeuralNetwork:
 
         return {
             "epochs": actual_epochs,
-            "final_loss": self.loss_history[-1] if self.loss_history else 0,
+            "final_loss": self._loss_history[-1] if self._loss_history else 0,
             "final_accuracy": final_accuracy,
-            "loss_history": self.loss_history,
-            "accuracy_history": self.accuracy_history,
+            "loss_history": self._loss_history,
+            "accuracy_history": self._accuracy_history,
             "stopped": stopped
         }
 
@@ -453,8 +509,8 @@ class NeuralNetwork:
         Returns:
             Dictionary with training results
         """
-        self.loss_history = []
-        self.accuracy_history = []
+        self._loss_history = []
+        self._accuracy_history = []
         stopped = False
 
         # Helper to get current target (supports both float and callable)
@@ -486,7 +542,7 @@ class NeuralNetwork:
         if verbose:
             print("-" * 80)
             print(f"Starting adaptive training (target: {initial_target*100:.0f}% accuracy)")
-            print(f"Network architecture: {self.layer_sizes}")
+            print(f"Network architecture: {self._layer_sizes}")
             print("-" * 80)
 
         epoch = 0
@@ -498,20 +554,20 @@ class NeuralNetwork:
                     print(f"\nTraining stopped by user at epoch {epoch}")
                 break
 
-            self.learning_rate = lr
+            self._learning_rate = lr
 
             # Forward pass
             output, activations, z_values = self.forward(X)
 
             # Calculate loss and accuracy (use appropriate loss function)
-            if self.output_activation == 'softmax':
+            if self._output_activation == 'softmax':
                 loss = self.cross_entropy_loss(output, y)
             else:
                 loss = self.mse_loss(output, y)
             accuracy = self.calculate_accuracy(X, y)
 
-            self.loss_history.append(loss)
-            self.accuracy_history.append(accuracy)
+            self._loss_history.append(loss)
+            self._accuracy_history.append(accuracy)
 
             # Backward pass
             self.backward(X, y, activations, z_values)
@@ -561,7 +617,7 @@ class NeuralNetwork:
 
             epoch += 1
 
-        final_accuracy = self.accuracy_history[-1] if self.accuracy_history else 0
+        final_accuracy = self._accuracy_history[-1] if self._accuracy_history else 0
         final_target = get_target()
 
         if verbose and not stopped:
@@ -574,10 +630,10 @@ class NeuralNetwork:
 
         return {
             "epochs": epoch,
-            "final_loss": self.loss_history[-1] if self.loss_history else 0,
+            "final_loss": self._loss_history[-1] if self._loss_history else 0,
             "final_accuracy": final_accuracy,
-            "loss_history": self.loss_history,
-            "accuracy_history": self.accuracy_history,
+            "loss_history": self._loss_history,
+            "accuracy_history": self._accuracy_history,
             "target_reached": final_accuracy >= final_target,
             "restarts": restart_count,
             "stopped": stopped
@@ -593,20 +649,20 @@ class NeuralNetwork:
 
     def get_flat_weights(self) -> np.ndarray:
         """Flatten all weights into a single vector for loss landscape visualization."""
-        return np.concatenate([w.flatten() for w in self.weights])
+        return np.concatenate([w.flatten() for w in self._weights])
 
     def set_flat_weights(self, flat: np.ndarray) -> None:
         """Set weights from a flattened vector."""
         idx = 0
-        for i, w in enumerate(self.weights):
+        for i, w in enumerate(self._weights):
             size = w.size
-            self.weights[i] = flat[idx:idx + size].reshape(w.shape)
+            self._weights[i] = flat[idx:idx + size].reshape(w.shape)
             idx += size
 
     def compute_loss(self, X: np.ndarray, y: np.ndarray) -> float:
         """Compute loss for given data without training."""
         output = self.predict(X)
-        if self.output_activation == 'softmax':
+        if self._output_activation == 'softmax':
             return self.cross_entropy_loss(output, y)
         else:
             return self.mse_loss(output, y)
@@ -616,52 +672,52 @@ class NeuralNetwork:
         return [
             {
                 "layer": i,
-                "weights": self.weights[i].tolist(),
-                "biases": self.biases[i].tolist(),
-                "input_size": self.layer_sizes[i],
-                "output_size": self.layer_sizes[i + 1]
+                "weights": self._weights[i].tolist(),
+                "biases": self._biases[i].tolist(),
+                "input_size": self._layer_sizes[i],
+                "output_size": self._layer_sizes[i + 1]
             }
-            for i in range(len(self.weights))
+            for i in range(len(self._weights))
         ]
 
     def get_architecture(self) -> dict:
         """Get network architecture info."""
         return {
-            "layer_sizes": self.layer_sizes,
-            "num_layers": self.num_layers,
-            "num_weights": sum(w.size for w in self.weights),
-            "num_biases": sum(b.size for b in self.biases),
-            "weight_init": self.weight_init,
-            "hidden_activation": self.hidden_activation,
-            "use_biases": self.use_biases
+            "layer_sizes": self._layer_sizes,
+            "num_layers": self._num_layers,
+            "num_weights": sum(w.size for w in self._weights),
+            "num_biases": sum(b.size for b in self._biases),
+            "weight_init": self._weight_init,
+            "hidden_activation": self._hidden_activation,
+            "use_biases": self._use_biases
         }
 
     def reset(self) -> None:
         """Reset weights to random initialization (preserves settings)."""
         self._initialize_weights()
-        self.loss_history = []
-        self.accuracy_history = []
+        self._loss_history = []
+        self._accuracy_history = []
 
     def save(self, filepath: str) -> None:
         """Save model weights to file."""
         np.savez(
             filepath,
-            layer_sizes=self.layer_sizes,
-            learning_rate=self.learning_rate,
-            output_activation=self.output_activation,
-            weights=[w for w in self.weights],
-            biases=[b for b in self.biases]
+            layer_sizes=self._layer_sizes,
+            learning_rate=self._learning_rate,
+            output_activation=self._output_activation,
+            weights=[w for w in self._weights],
+            biases=[b for b in self._biases]
         )
 
     def load(self, filepath: str) -> None:
         """Load model weights from file."""
         data = np.load(filepath, allow_pickle=True)
-        self.layer_sizes = list(data['layer_sizes'])
-        self.learning_rate = float(data['learning_rate'])
-        self.output_activation = str(data.get('output_activation', 'sigmoid'))
-        self.weights = list(data['weights'])
-        self.biases = list(data['biases'])
-        self.num_layers = len(self.layer_sizes)
+        self._layer_sizes = list(data['layer_sizes'])
+        self._learning_rate = float(data['learning_rate'])
+        self._output_activation = str(data.get('output_activation', 'sigmoid'))
+        self._weights = list(data['weights'])
+        self._biases = list(data['biases'])
+        self._num_layers = len(self._layer_sizes)
 
 
 # -----------------------------------------------------------------------------
